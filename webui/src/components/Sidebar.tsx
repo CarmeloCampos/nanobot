@@ -9,6 +9,7 @@ import {
   Brain,
   CalendarClock,
   MessageCircle,
+  MonitorUp,
   PanelLeftClose,
   Search,
   Settings,
@@ -22,7 +23,8 @@ import {
   type SidebarDeleteItem,
   type SidebarPaneGroup,
 } from "@/components/ChatList";
-import { ConnectionBadge } from "@/components/ConnectionBadge";
+import { HostSwitcher } from "@/components/remote/HostSwitcher";
+import { useRemoteConnections } from "@/components/remote/RemoteInstances";
 import {
   SIDEBAR_SELECTION_ACTION_ITEM_CLASS,
   SidebarSelectionHighlight,
@@ -68,9 +70,10 @@ interface SidebarProps {
   onOpenSkills: () => void;
   onOpenAutomations: () => void;
   onOpenChannels: () => void;
+  onOpenRemoteConnections?: () => void;
   onSettingsIntent?: () => void;
   onOpenSearch: () => void;
-  activeUtility?: "apps" | "skills" | "automations" | "channels" | null;
+  activeUtility?: "apps" | "skills" | "automations" | "channels" | "remote" | null;
   onToggleArchived: () => void;
   onCollapse?: () => void;
   onExpand?: () => void;
@@ -108,6 +111,7 @@ function isApplePlatform(): boolean {
 
 export function Sidebar(props: SidebarProps) {
   const { t } = useTranslation();
+  const remoteConnections = useRemoteConnections();
   const [menuPortalContainer, setMenuPortalContainer] =
     useState<HTMLElement | null>(null);
   const collapsed = Boolean(props.collapsed);
@@ -253,6 +257,16 @@ export function Sidebar(props: SidebarProps) {
           selectionRef={activeActionRef}
           icon={<MessageCircle className="h-4 w-4" />}
         />
+        {remoteConnections?.available && props.onOpenRemoteConnections && (
+          <SidebarActionButton
+            collapsed={collapsed}
+            label={t("remote.title")}
+            onClick={props.onOpenRemoteConnections}
+            active={props.activeUtility === "remote"}
+            selectionRef={activeActionRef}
+            icon={<MonitorUp className="h-4 w-4" />}
+          />
+        )}
         {props.archivedCount ? (
           <SidebarActionButton
             collapsed={collapsed}
@@ -332,7 +346,7 @@ export function Sidebar(props: SidebarProps) {
           className="w-9"
           icon={<Settings className="h-4 w-4" />}
         />
-        <ConnectionBadge />
+        <HostSwitcher collapsed={collapsed} portalContainer={props.containActionMenus ? menuPortalContainer : undefined} />
       </div>
     </nav>
     </TooltipProvider>

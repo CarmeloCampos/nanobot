@@ -13,6 +13,8 @@ import { Trans, useTranslation } from "react-i18next";
 import { channelUiPresentation } from "@/channel-plugins/registry";
 import { StarPrompt } from "@/components/StarPrompt";
 import { Sidebar } from "@/components/Sidebar";
+import { RemoteInstances, useRemoteConnections } from "@/components/remote/RemoteInstances";
+import { RemoteConnectionsPage } from "@/components/remote/RemoteConnectionsPage";
 import { LanguageSwitcher } from "@/components/LanguageSwitcher";
 import { SidebarResizeHandle, SIDEBAR_MIN_WIDTH, SIDEBAR_MAX_WIDTH } from "@/components/SidebarResizeHandle";
 import { matchSidebarShortcut } from "@/lib/sidebar-shortcuts";
@@ -130,7 +132,7 @@ const TOKEN_REFRESH_MIN_DELAY_MS = 5_000;
 const PAIRING_POLL_INTERVAL_MS = 5_000;
 const PAIRING_IDLE_POLL_INTERVAL_MS = 15_000;
 const PAIRING_DISMISS_SNOOZE_MS = 30_000;
-type ShellView = "chat" | "settings" | "apps" | "automations" | "skills" | "channels";
+type ShellView = "chat" | "settings" | "apps" | "automations" | "skills" | "channels" | "remote";
 type ShellRoute = {
   view: ShellView;
   activeKey: string | null;
@@ -279,6 +281,9 @@ function readShellRoute(): ShellRoute {
   }
   if (path === "/channels") {
     return { view: "channels", activeKey, temporary, settingsSection: "channels" };
+  }
+  if (path === "/remote") {
+    return { view: "remote", activeKey, temporary, settingsSection: "overview" };
   }
   if (path === "/skills") {
     return { view: "skills", activeKey, temporary, settingsSection: "skills" };
@@ -1084,12 +1089,12 @@ export default function App() {
       modelName={state.modelName}
       ingressLimits={state.ingressLimits}
     >
-      <Shell
+      <RemoteInstances><Shell
         runtimeSurface={state.runtimeSurface}
         onModelNameChange={handleModelNameChange}
         onLogout={handleLogout}
         onNativeEngineRestart={handleNativeEngineRestart}
-      />
+      /></RemoteInstances>
     </ClientProvider>
   );
 }
@@ -1106,6 +1111,7 @@ function Shell({
   onNativeEngineRestart: () => Promise<string>;
 }) {
   const { t, i18n } = useTranslation();
+  const localActive = useRemoteConnections()?.localActive !== false;
   const { client, getToken } = useClient();
   const { theme, toggle } = useTheme();
   const {
@@ -2125,6 +2131,12 @@ function Shell({
     setMobileSidebarOpen(false);
   }, [activeKey, navigate]);
 
+  const onOpenRemoteConnections = useCallback(() => {
+    setSessionSearchOpen(false);
+    navigate({ view: "remote", activeKey, settingsSection: "overview" });
+    setMobileSidebarOpen(false);
+  }, [activeKey, navigate]);
+
   const onOpenSkills = useCallback(() => {
     setSessionSearchOpen(false);
     navigate({ view: "skills", activeKey, settingsSection: "skills" });
@@ -2135,6 +2147,7 @@ function Shell({
     const actions = { newChat: onNewChat, search: onOpenSessionSearch, apps: onOpenApps,
       skills: onOpenSkills, automations: onOpenAutomations, channels: onOpenChannels, settings: () => onOpenSettings() };
     const handleKeyDown = (event: globalThis.KeyboardEvent) => {
+      if (!localActive) return;
       const action = matchSidebarShortcut(event);
       if (!action) return;
       event.preventDefault();
@@ -2142,7 +2155,7 @@ function Shell({
     };
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [onNewChat, onOpenSessionSearch, onOpenApps, onOpenSkills, onOpenAutomations, onOpenChannels, onOpenSettings]);
+  }, [localActive, onNewChat, onOpenSessionSearch, onOpenApps, onOpenSkills, onOpenAutomations, onOpenChannels, onOpenSettings]);
 
   const onSettingsSectionChange = useCallback(
     (section: SettingsSectionKey) => {
@@ -2632,6 +2645,7 @@ function Shell({
   }, [updateWorkbenchState]);
 
   useEffect(() => {
+    if (!localActive) return;
     if (view === "settings") {
       document.title = t("app.documentTitle.chat", {
         title: t("settings.sidebar.title"),
@@ -2654,6 +2668,10 @@ function Shell({
       document.title = t("app.documentTitle.chat", { title: t("settings.nav.channels") });
       return;
     }
+    if (view === "remote") {
+      document.title = t("app.documentTitle.chat", { title: t("remote.title") });
+      return;
+    }
     if (view === "skills") {
       document.title = t("app.documentTitle.chat", {
         title: t("settings.nav.skills", { defaultValue: "Skills" }),
@@ -2663,7 +2681,7 @@ function Shell({
     document.title = activeSession
       ? t("app.documentTitle.chat", { title: headerTitle })
       : t("app.documentTitle.base");
-  }, [activeSession, headerTitle, i18n.resolvedLanguage, t, view]);
+  }, [localActive, activeSession, headerTitle, i18n.resolvedLanguage, t, view]);
 
   const pinnedPaneKeys = useMemo(
     () => new Set(sidebarState.pinned_keys),
@@ -2715,10 +2733,11 @@ function Shell({
     onOpenApps,
     onOpenAutomations,
     onOpenChannels,
+    onOpenRemoteConnections,
     onOpenSkills,
     onSettingsIntent,
     onOpenSearch: onOpenSessionSearch,
-    activeUtility: view === "apps" || view === "automations" || view === "skills" || view === "channels" ? view : null,
+    activeUtility: view === "apps" || view === "automations" || view === "skills" || view === "channels" || view === "remote" ? view : null,
     onToggleArchived,
     pinnedKeys: sidebarPinnedTabKeys,
     archivedKeys: sidebarArchivedTabKeys,
@@ -2747,7 +2766,7 @@ function Shell({
 
   return (
     <ThemeProvider theme={theme}>
-      <StarPrompt ready={!loading && !sidebarStateLoading} />
+      <StarPrompt ready={localActive && !loading && !sidebarStateLoading} />
       <div
         className={cn(
           "relative h-full w-full overflow-hidden",
@@ -2874,7 +2893,7 @@ function Shell({
                 view !== "chat" && "hidden",
               )}
             >
-              <ThreadVisibilityContext.Provider value={view === "chat"}>
+              <ThreadVisibilityContext.Provider value={localActive && view === "chat"}>
                 <Suspense fallback={<StartupShell embedded />}>
                   <PaneWorkbench
                     panes={renderedWorkbenchPanes}
@@ -3021,7 +3040,11 @@ function Shell({
             </div>}
             {view !== "chat" && (
               <div className="absolute inset-0 flex flex-col">
-                <Suspense fallback={<SurfaceLoadingFallback />}>
+                {view === "remote" ? <RemoteConnectionsPage
+                  mainNavigationExpanded={showMainSidebar && hostSidebarOpen}
+                  hostChromeInset={showHostChrome}
+                  onBackToChat={onBackToChat}
+                /> : <Suspense fallback={<SurfaceLoadingFallback />}>
                   <SettingsView
                     registerExitGuard={registerSettingsExitGuard}
                     theme={theme}
@@ -3043,7 +3066,7 @@ function Shell({
                     isRestarting={isRestarting}
                     hostChromeInset={showHostChrome}
                   />
-                </Suspense>
+                </Suspense>}
               </div>
             )}
           </main>

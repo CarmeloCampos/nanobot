@@ -676,6 +676,7 @@ class WebSocketChannel(BaseChannel):
             )
 
     async def start(self) -> None:
+        self.gateway.http.remote_instances.resume()
         from nanobot.utils.logging_bridge import redirect_lib_logging
 
         redirect_lib_logging("websockets", level="WARNING")
@@ -884,6 +885,7 @@ class WebSocketChannel(BaseChannel):
     # -- Outbound WebSocket events -----------------------------------------
 
     async def stop(self) -> None:
+        await self.gateway.http.remote_instances.close()
         server_task = self._server_task
         if (
             not self._running

@@ -678,6 +678,50 @@ describe("App layout", () => {
     expect(window.location.hash).toBe("#/channels");
   });
 
+  it("opens Remote connections in the main shell and restores it through browser history", async () => {
+    requestMutationSpy.mockResolvedValue({ hosts: [], files: [], incomplete: false });
+    mockFetchRoutes({
+      "/api/settings": baseSettingsPayload(),
+      "/api/remote-instances": { available: true, profiles: [] },
+    });
+    render(<App />);
+    await waitFor(() => expect(connectSpy).toHaveBeenCalled());
+    const sidebar = screen.getByRole("navigation", { name: "Sidebar navigation" });
+    const remote = await within(sidebar).findByRole("button", { name: "Remote connections" });
+    fireEvent.click(remote);
+    fireEvent.click(await screen.findByRole("button", { name: "Connect to remote nanobot…" }));
+    const host = await screen.findByRole("textbox", { name: "SSH address" });
+    expect(screen.getByRole("main")).toContainElement(host);
+    expect(sidebar).toBeVisible();
+    expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+    expect(remote).toHaveAttribute("aria-current", "page");
+    expect(window.location.hash).toBe("#/remote");
+    expect(document.title).toBe("Remote connections · nanobot");
+    fireEvent.click(within(sidebar).getByRole("button", { name: "New topic" }));
+    expect(window.location.hash).toBe("#/new");
+    expect(screen.queryByRole("textbox", { name: "SSH address" })).not.toBeInTheDocument();
+    act(() => {
+      window.history.replaceState(null, "", "#/remote");
+      window.dispatchEvent(new PopStateEvent("popstate"));
+    });
+    expect(await screen.findByRole("region", { name: "From your SSH config" })).toBeVisible();
+    expect(remote).toHaveAttribute("aria-current", "page");
+  });
+
+  it("opens a remote setup deep link after reloading without opening Settings", async () => {
+    requestMutationSpy.mockResolvedValue({ hosts: [], files: [], incomplete: false });
+    window.history.replaceState(null, "", "#/remote");
+    mockFetchRoutes({
+      "/api/settings": baseSettingsPayload(),
+      "/api/remote-instances": { available: true, profiles: [] },
+    });
+    render(<App />);
+    expect(await screen.findByRole("region", { name: "From your SSH config" })).toBeVisible();
+    expect(screen.getByRole("navigation", { name: "Sidebar navigation" })).toBeVisible();
+    expect(screen.queryByRole("navigation", { name: "Settings sections" })).not.toBeInTheDocument();
+    expect(window.location.hash).toBe("#/remote");
+  });
+
   it("highlights the blank new-topic destination immediately", async () => {
     render(<App />);
 

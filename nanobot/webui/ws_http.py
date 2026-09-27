@@ -164,6 +164,13 @@ class _WebUIThreadDiagnostics:
     event_loop_lag_ms: float = 0.0
 
 _WEBUI_MUTATION_PATHS = {
+    "remote.discover": "/api/remote-instances/discover",
+    "remote.save": "/api/remote-instances/save",
+    "remote.connect": "/api/remote-instances/connect",
+    "remote.disconnect": "/api/remote-instances/disconnect",
+    "remote.remove": "/api/remote-instances/remove",
+    "remote.fingerprint": "/api/remote-instances/fingerprint",
+    "remote.trust": "/api/remote-instances/trust",
     "automation.enable": "/api/webui/automations/enable",
     "automation.disable": "/api/webui/automations/disable",
     "automation.delete": "/api/webui/automations/delete",
@@ -372,6 +379,11 @@ class GatewayHTTPHandler:
         self.ingress = ingress
         self.workspaces = workspaces
         self.settings = settings
+        from nanobot.webui.remote_instances import RemoteInstances
+
+        self.remote_instances = RemoteInstances(
+            settings.config.path.parent / "webui", local_gateway_id=tokens.instance_id,
+        )
         self.skills_workspace_path = skills_workspace_path
         self.disabled_skills: set[str] = (
             disabled_skills if disabled_skills is not None else set()
@@ -512,6 +524,8 @@ class GatewayHTTPHandler:
         return _http_error(404, "WebUI mutation action not found")
 
     def _is_webui_mutation_path(self, path: str) -> bool:
+        if path.startswith("/api/remote-instances/"):
+            return True
         if self.settings_routes.is_mutation_path(path):
             return True
         if re.match(r"^/api/sessions/[^/]+/delete$", path):
@@ -560,6 +574,8 @@ class GatewayHTTPHandler:
         request: WsRequest,
         got: str,
     ) -> Any | None:
+        if got == "/api/remote-instances" or got.startswith("/api/remote-instances/"):
+            return await self._dispatch_remote_instances(connection, request, got)
         # Token issue endpoint
         if self.config.token_issue_path:
             issue_expected = _normalize_config_path(self.config.token_issue_path)
@@ -616,6 +632,38 @@ class GatewayHTTPHandler:
                 return response
 
         return connection.respond(404, "Not Found")
+
+    async def _dispatch_remote_instances(
+        self, connection: Any, request: WsRequest, path: str,
+    ) -> Response:
+        from pydantic import ValidationError
+
+        from nanobot.webui.remote_ssh import RemoteError
+
+        if not self.check_api_token(request):
+            return _http_error(401, "Unauthorized")
+        # A public/reverse-proxied WebUI must never gain access to this machine's
+        # SSH agent, private keys or network. Same checks as local folder picking.
+        if not (_is_loopback_host(self.config.host)
+                and _is_local_browser_request(connection, request.headers)):
+            return _http_error(403, "remote_connections_local_only")
+        origin = request.headers.get("Origin", "")
+        if origin and not _is_loopback_host(urlsplit(origin).hostname or ""):
+            return _http_error(403, "remote_connections_local_only")
+        try:
+            if path == "/api/remote-instances":
+                return _http_json_response(await self.remote_instances.health(), extra_headers=_NO_STORE_HEADERS)
+            if not getattr(request, _WEBUI_MUTATION_REQUEST_ATTR, False):
+                return _http_error(405, "WebSocket required")
+            payload = getattr(request, _WEBUI_MUTATION_PAYLOAD_ATTR, {})
+            result = await self.remote_instances.action(path.rsplit("/", 1)[-1], payload)
+            return _http_json_response(result, extra_headers=_NO_STORE_HEADERS)
+        except RemoteError as exc:
+            return _http_error(400, str(exc))
+        except ValidationError:
+            return _http_error(400, "invalid_profile")
+        except OSError:
+            return _http_error(500, "local_io_error")
 
     def _log_slow_http(self, path: str, response: Any | None, started: float) -> None:
         elapsed_ms = int((time.perf_counter() - started) * 1000)
