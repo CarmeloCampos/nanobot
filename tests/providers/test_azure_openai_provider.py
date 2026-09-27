@@ -279,7 +279,7 @@ def test_build_body_with_tools():
     body = provider._build_body(
         [{"role": "user", "content": "weather?"}], tools, None, 4096, 0.7, None, None,
     )
-    assert body["tools"] == [{"type": "function", "name": "get_weather", "description": "", "parameters": {}}]
+    assert body["tools"] == [{"type": "function", "name": "get_weather", "description": "", "parameters": {}, "strict": False}]
     assert body["tool_choice"] == "auto"
 
 

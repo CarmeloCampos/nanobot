@@ -998,3 +998,29 @@ async def test_codex_stream_surfaces_reasoning_summary(monkeypatch) -> None:
 
 async def _append(target: list[str], value: str) -> None:
     target.append(value)
+
+
+async def test_codex_request_preserves_optional_tool_fields(monkeypatch):
+    _mock_codex_token(monkeypatch)
+    captured = {}
+
+    async def fake_request(_url, _headers, body, **_kwargs):
+        captured.update(body)
+        return provider_base.LLMResponse(content="ok")
+
+    monkeypatch.setattr("nanobot.providers.openai_codex_provider._request_codex", fake_request)
+    parameters = {
+        "type": "object",
+        "properties": {"query": {"type": "string"}},
+        "required": [],
+    }
+    response = await OpenAICodexProvider().chat(
+        [{"role": "user", "content": "Search issues"}],
+        tools=[{"type": "function", "function": {
+            "name": "list_issues", "parameters": parameters,
+        }}],
+    )
+
+    assert response.content == "ok"
+    assert captured["tools"][0]["strict"] is False
+    assert captured["tools"][0]["parameters"] == parameters
