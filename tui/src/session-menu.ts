@@ -1,4 +1,4 @@
-import { RGBA, type BoxRenderable, type CliRenderer, type TextChunk } from "@opentui/core"
+import { parseColor, type ColorInput, type BoxRenderable, type CliRenderer, type TextChunk } from "@opentui/core"
 
 import { PickerMenu, type PickerMenuTheme } from "./picker-menu"
 import type { SessionSummary } from "./protocol"
@@ -156,7 +156,7 @@ export class SessionMenu {
     this.picker.setTheme(theme)
   }
 
-  private marker(session: SessionMenuRow): { text: string; color: string } | null {
+  private marker(session: SessionMenuRow): { text: string; color: ColorInput } | null {
     if (this.interrupted(session)) {
       return {
         text: "⚠",
@@ -254,11 +254,11 @@ export class SessionMenu {
   }
 }
 
-function chunk(text: string, color: string): TextChunk {
+function chunk(text: string, color: ColorInput): TextChunk {
   return {
     __isChunk: true,
     text,
-    fg: RGBA.fromHex(color),
+    fg: parseColor(color),
   }
 }
 

@@ -5,10 +5,10 @@ import { createTestRenderer, type TestRendererSetup } from "@opentui/core/testin
 import { UsagePanel, type UsagePanelTheme } from "./usage-panel"
 import type { SessionUsageSnapshot } from "./protocol"
 
-const theme: UsagePanelTheme = {
+const theme = {
   text: "#ECEDEE", muted: "#A1A1AA", border: "#3F3F46", accent: "#EF8E30",
   cached: "#1795A2", warning: "#F5C451", error: "#F87171",
-}
+} satisfies UsagePanelTheme
 const snapshot: SessionUsageSnapshot = {
   context: { tokens: 9_000, windowTokens: 262_144 },
   rounds: [
@@ -81,6 +81,21 @@ describe("UsagePanel", () => {
           .filter((span) => span.bg.equals(uncachedColor)).map((span) => span.text)).toEqual(["▆▆▆"])
       }
     }
+  })
+
+  test("preserves full bar heights when cache colors use terminal defaults", async () => {
+    setup = await createTestRenderer({ width: 80, height: 30, screenMode: "alternate-screen" })
+    const panel = new UsagePanel(setup.renderer, {
+      ...theme, accent: RGBA.defaultForeground(), cached: RGBA.defaultForeground(),
+    })
+    setup.renderer.root.add(panel.root)
+    panel.resize(80, 30)
+    panel.show({ context: null, rounds: [{ prompt_tokens: 1000, cached_tokens: 800 }] })
+    await setup.renderOnce()
+    const bars = setup.captureSpans().lines.flatMap((line) =>
+      line.spans.filter((span) => /[▁▂▃▄▅▆▇█]/u.test(span.text)))
+    expect(bars.map((span) => span.text.trim())).toEqual(Array(6).fill("███"))
+    expect(bars.every((span) => span.fg.intent === "default")).toBe(true)
   })
 
   test("quantizes the cache boundary from raw tokens rather than the rounded total height", async () => {

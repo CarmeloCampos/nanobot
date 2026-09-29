@@ -9,8 +9,10 @@ import {
   createCliRenderer,
   decodePasteBytes,
   getTreeSitterClient,
+  parseColor,
   stripAnsiSequences,
   type CliRenderer,
+  type ColorInput,
   type KeyEvent,
   type PasteEvent,
   type TextChunk,
@@ -138,19 +140,19 @@ interface ChatClient {
 
 interface Palette {
   referenceBackground: string
-  text: string
-  muted: string
-  faint: string
-  border: string
-  accent: string
-  link: string
-  success: string
-  warning: string
-  error: string
-  user: string
-  userBackground: string
-  warm: string
-  cool: string
+  text: ColorInput
+  muted: ColorInput
+  faint: ColorInput
+  border: ColorInput
+  accent: ColorInput
+  link: ColorInput
+  success: ColorInput
+  warning: ColorInput
+  error: ColorInput
+  user: ColorInput
+  userBackground: ColorInput
+  warm: ColorInput
+  cool: ColorInput
 }
 
 const DARK: Palette = {
@@ -187,6 +189,25 @@ const LIGHT: Palette = {
   userBackground: "#F0F0F0",
   warm: "#C2410C",
   cool: "#0F766E",
+}
+
+// Until the terminal answers OSC 10/11, its default foreground is the only
+// text color known to match its default background.
+const TERMINAL: Palette = {
+  ...DARK,
+  text: RGBA.defaultForeground(),
+  muted: RGBA.defaultForeground(),
+  faint: RGBA.defaultForeground(),
+  border: RGBA.defaultForeground(),
+  accent: RGBA.defaultForeground(),
+  link: RGBA.defaultForeground(),
+  success: RGBA.defaultForeground(),
+  warning: RGBA.defaultForeground(),
+  error: RGBA.defaultForeground(),
+  user: RGBA.defaultForeground(),
+  userBackground: RGBA.defaultBackground(),
+  warm: RGBA.defaultForeground(),
+  cool: RGBA.defaultForeground(),
 }
 
 const COMPOSER_PLACEHOLDER = "Ask nanobot anything"
@@ -251,8 +272,8 @@ const LOCAL_COMMANDS: TuiCommand[] = [
 ]
 
 function syntaxStyle(palette: Palette): SyntaxStyle {
-  const color = (value: string) => {
-    const parsed = RGBA.fromHex(value)
+  const color = (value: ColorInput) => {
+    const parsed = parseColor(value)
     return { fg: parsed }
   }
   return SyntaxStyle.fromStyles({
@@ -278,7 +299,7 @@ function syntaxStyle(palette: Palette): SyntaxStyle {
 
 function composerSyntaxStyle(palette: Palette): SyntaxStyle {
   return SyntaxStyle.fromStyles({
-    [IMAGE_PLACEHOLDER_STYLE]: { fg: RGBA.fromHex(palette.accent), bold: true },
+    [IMAGE_PLACEHOLDER_STYLE]: { fg: parseColor(palette.accent), bold: true },
   })
 }
 
@@ -374,9 +395,12 @@ function shimmerStatus(
   frame: number,
   palette: Palette,
 ): StyledText {
+  if (palette === TERMINAL) {
+    return new StyledText([{ __isChunk: true, text: label + suffix, fg: parseColor(palette.text) }])
+  }
   const chars = Array.from(label)
-  const base = RGBA.fromHex(palette.muted).toInts()
-  const highlight = RGBA.fromHex(palette.accent).toInts()
+  const base = parseColor(palette.muted).toInts()
+  const highlight = parseColor(palette.accent).toInts()
   // Sweep immediately, then leave a quiet pause before repeating. The text
   // keeps a constant width throughout, so the footer never jitters.
   const position = frame % (chars.length + SHIMMER_PAUSE)
@@ -395,7 +419,7 @@ function shimmerStatus(
       ),
     }
   })
-  chunks.push({ __isChunk: true, text: suffix, fg: RGBA.fromHex(palette.muted) })
+  chunks.push({ __isChunk: true, text: suffix, fg: parseColor(palette.muted) })
   return new StyledText(chunks)
 }
 
@@ -602,7 +626,8 @@ export class NanobotTui {
     this.sessionModelPreset = options.chatId ? undefined : null
     this.backgroundKnown = options.theme !== "auto" || renderer.themeMode !== null
     this.activeThemeMode = this.resolveThemeMode(renderer.themeMode)
-    this.palette = this.activeThemeMode === "light" ? LIGHT : DARK
+    this.palette = !this.backgroundKnown ? TERMINAL
+      : this.activeThemeMode === "light" ? LIGHT : DARK
     this.composerSyntax = composerSyntaxStyle(this.palette)
     this.host = host
     this.transcript = new Transcript(
@@ -913,8 +938,8 @@ export class NanobotTui {
     this.runtimeControls.preload()
     this.renderer.start()
     // OpenTUI learns the real terminal background through OSC 10/11. Wait for
-    // that bounded probe after first paint. The neutral terminal background is
-    // safe to render immediately, and the detected palette can be applied later.
+    // that bounded probe after first paint. Terminal-default foreground and
+    // background keep the first frame readable before a palette is detected.
     if (this.options.theme === "auto") await this.renderer.waitForThemeMode(1_000)
     if (this.quitting) return
     if (this.options.theme === "auto" && this.renderer.themeMode) {
@@ -2195,7 +2220,7 @@ export class NanobotTui {
 
   private composerSurface(): RGBA {
     return this.backgroundKnown
-      ? RGBA.fromHex(this.palette.userBackground)
+      ? parseColor(this.palette.userBackground)
       : RGBA.defaultBackground()
   }
 

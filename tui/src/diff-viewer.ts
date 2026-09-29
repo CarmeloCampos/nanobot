@@ -7,6 +7,7 @@ import {
   TextAttributes,
   TextRenderable,
   type CliRenderer,
+  type ColorInput,
   type KeyEvent,
   type TreeSitterClient,
 } from "@opentui/core"
@@ -15,14 +16,14 @@ import type { FileEditEvent, HistoryMessage } from "./protocol"
 import { hideScrollbars } from "./scrollbox"
 
 export interface DiffViewerTheme {
-  text: string
-  muted: string
-  border: string
-  accent: string
-  success: string
-  error: string
-  addedBackground: string | null
-  removedBackground: string | null
+  text: ColorInput
+  muted: ColorInput
+  border: ColorInput
+  accent: ColorInput
+  success: ColorInput
+  error: ColorInput
+  addedBackground: ColorInput | null
+  removedBackground: ColorInput | null
   syntax: SyntaxStyle
 }
 

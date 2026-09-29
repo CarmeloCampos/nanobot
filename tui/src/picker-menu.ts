@@ -4,17 +4,19 @@ import {
   StyledText,
   TextAttributes,
   TextRenderable,
+  parseColor,
   type CliRenderer,
+  type ColorInput,
   type TextChunk,
 } from "@opentui/core"
 
 export interface PickerMenuTheme {
-  text: string
-  muted: string
-  border: string
-  accent?: string
-  warning?: string
-  selectedBackground?: string
+  text: ColorInput
+  muted: ColorInput
+  border: ColorInput
+  accent?: ColorInput
+  warning?: ColorInput
+  selectedBackground?: ColorInput
 }
 
 interface PickerMenuOptions<T> {
@@ -169,7 +171,7 @@ export class PickerMenu<T> {
         fg: selected ? this.theme.text : this.theme.muted,
         selectable: false,
         ...(selected && this.theme.selectedBackground
-          ? { backgroundColor: RGBA.fromHex(this.theme.selectedBackground) }
+          ? { backgroundColor: parseColor(this.theme.selectedBackground) }
           : {}),
         attributes: selected ? TextAttributes.BOLD : 0,
         onMouseMove: () => {
@@ -197,10 +199,10 @@ export class PickerMenu<T> {
   }
 }
 
-function chunk(text: string, color: string): TextChunk {
+function chunk(text: string, color: ColorInput): TextChunk {
   return {
     __isChunk: true,
     text,
-    fg: RGBA.fromHex(color),
+    fg: parseColor(color),
   }
 }

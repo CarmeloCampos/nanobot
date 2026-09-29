@@ -4,16 +4,18 @@ import {
   StyledText,
   TextAttributes,
   TextRenderable,
+  parseColor,
   type CliRenderer,
+  type ColorInput,
   type TextChunk,
 } from "@opentui/core"
 
 import { optionArrowUp } from "./platform-keys"
 
 export interface QueuePreviewTheme {
-  accent: string
-  muted: string
-  faint: string
+  accent: ColorInput
+  muted: ColorInput
+  faint: ColorInput
 }
 
 const MAX_VISIBLE = 3
@@ -89,11 +91,11 @@ function oneLine(value: string): string {
   return value.length > 240 ? `${preview}…` : preview
 }
 
-function chunk(text: string, color: string, bold = false): TextChunk {
+function chunk(text: string, color: ColorInput, bold = false): TextChunk {
   return {
     __isChunk: true,
     text,
-    fg: RGBA.fromHex(color),
+    fg: parseColor(color),
     attributes: bold ? TextAttributes.BOLD : 0,
   }
 }

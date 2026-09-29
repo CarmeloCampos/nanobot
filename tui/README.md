@@ -17,6 +17,11 @@ Assistant math written with `$...$`, `$$...$$`, `\\(...\\)`, or `\\[...\\]` is p
 Unicode plain text so formulas remain readable in terminals without a math renderer. Currency and
 LaTeX inside inline or fenced code remain literal.
 
+Automatic theme selection follows the terminal's OSC 10/11 responses. Until a response
+arrives, the TUI uses the terminal's default foreground and background without semantic
+colors or color animations. Terminals that do not answer keep this readable fallback.
+Use `nanobot --theme light` or `nanobot --theme dark` to select a color palette explicitly.
+
 ## Herdr pane titles
 
 When Herdr supplies `HERDR_ENV=1` and `HERDR_PANE_ID`, nanobot keeps the same full-screen layout, controls, and navigation available in any other terminal. Its only host-specific behavior is reporting the latest user task as the Herdr pane title through the supported pane CLI. Creating a new chat, switching to a chat without a task, and exiting the TUI clear that title. Nanobot does not report agent lifecycle, session, model, Git branch, workspace, or action metadata to Herdr.

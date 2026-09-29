@@ -391,7 +391,7 @@ describe("NanobotTui layout", () => {
     expect(ui.status.plainText).toContain("Pasted Image #1")
     const placeholderStyle = ui.composer.syntaxStyle?.getStyle("image.placeholder")
     expect(placeholderStyle?.bold).toBeTrue()
-    expect(placeholderStyle?.fg?.toInts().slice(0, 3)).toEqual([239, 142, 48])
+    expect(placeholderStyle?.fg?.intent).toBe("default")
     const placeholderStyleId = ui.composer.syntaxStyle?.getStyleId("image.placeholder")
     if (placeholderStyleId === null || placeholderStyleId === undefined) {
       throw new Error("image placeholder style was not registered")
@@ -431,7 +431,7 @@ describe("NanobotTui layout", () => {
     expect(userContent).toBeInstanceOf(StyledText)
     const imageChunk = (userContent as StyledText).chunks.find(({ text }) => text === "[Image #1]")
     expect(imageChunk?.attributes).toBe(TextAttributes.BOLD)
-    expect(imageChunk?.fg?.toInts().slice(0, 3)).toEqual([239, 142, 48])
+    expect(imageChunk?.fg?.intent).toBe("default")
 
     await setup.mockInput.typeText("这是什么？ ")
     setup.mockInput.pressKey("v", { ctrl: true })
@@ -2439,7 +2439,7 @@ describe("NanobotTui layout", () => {
     expect((app as unknown as { palette: { referenceBackground: string } }).palette.referenceBackground).toBe("#FAFAFA")
   })
 
-  test("falls back to the dark palette when terminal theme probing has no answer", async () => {
+  test.each(["dark", "light"] as const)("uses terminal defaults until a late %s theme response", async (mode) => {
     setup = await createRenderer({ width: 72, height: 20, screenMode: "alternate-screen" })
     let connected = false
     setup.renderer.waitForThemeMode = async () => null
@@ -2464,8 +2464,32 @@ describe("NanobotTui layout", () => {
     transcript.user("Unknown terminal background")
 
     expect(connected).toBe(true)
-    expect((app as unknown as { palette: { referenceBackground: string } }).palette.referenceBackground).toBe("#0E0F11")
+    const ui = app as unknown as { composer: TextareaRenderable; status: TextRenderable }
+    expect(ui.composer.textColor.intent).toBe("default")
+    expect(ui.composer.backgroundColor.intent).toBe("default")
     expect([...transcript.userRows][0]?.backgroundColor.intent).toBe("default")
+    app.accept({ event: "delta", chat_id: "chat", text: "Readable answer" })
+    app.accept({ event: "stream_end", chat_id: "chat" })
+    await setup.flush()
+    expect(setup.captureCharFrame()).toContain("Readable answer")
+    for (const line of setup.captureSpans().lines) {
+      for (const span of line.spans) {
+        if (span.text.trim()) expect(span.fg.intent).toBe("default")
+      }
+    }
+    // Active status must not turn the default color into guessed RGB shimmer colors.
+    app.accept({ event: "reasoning_delta", chat_id: "chat", text: "thinking" })
+    await setup.flush()
+    for (const chunk of (ui.status.content as StyledText).chunks) {
+      expect(chunk.fg?.intent).toBe("default")
+    }
+    setup.renderer.emit(CliRenderEvents.THEME_MODE, mode)
+    await setup.flush()
+    expect(ui.composer.textColor.intent).toBe("rgb")
+    expect(ui.composer.textColor.toInts().slice(0, 3)).toEqual(
+      mode === "light" ? [24, 24, 27] : [236, 237, 238],
+    )
+    expect([...transcript.userRows][0]?.backgroundColor.intent).toBe("rgb")
   })
 
   test("keeps semantic colors legible in both terminal appearances", async () => {
@@ -2487,6 +2511,7 @@ describe("NanobotTui layout", () => {
       expect(turnContrast).toBeLessThan(1.5)
     }
 
+    setup.renderer.emit(CliRenderEvents.THEME_MODE, "dark")
     assertContrast()
     expect(internals.palette.accent).toBe("#EF8E30")
     expect(internals.palette.user).toBe("#EF8E30")
@@ -2613,6 +2638,7 @@ describe("NanobotTui layout", () => {
   test("animates one stable status line while the agent works", async () => {
     setup = await createRenderer({ width: 88, height: 24, screenMode: "alternate-screen" })
     const app = mount(setup)
+    setup.renderer.emit(CliRenderEvents.THEME_MODE, "dark")
     app.accept({ event: "attached", chat_id: "chat" })
     app.accept({ event: "reasoning_delta", chat_id: "chat", text: "hidden reasoning" })
     await Bun.sleep(130)

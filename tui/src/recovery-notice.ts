@@ -4,19 +4,21 @@ import {
   StyledText,
   TextAttributes,
   TextRenderable,
+  parseColor,
   type CliRenderer,
+  type ColorInput,
   type TextChunk,
 } from "@opentui/core"
 
 import type { RecoveryState } from "./protocol"
 
 export interface RecoveryNoticeTheme {
-  text: string
-  muted: string
-  border: string
-  accent: string
-  warning: string
-  error: string
+  text: ColorInput
+  muted: ColorInput
+  border: ColorInput
+  accent: ColorInput
+  warning: ColorInput
+  error: ColorInput
 }
 
 interface RecoveryNoticeOptions {
@@ -159,19 +161,19 @@ export class RecoveryNotice {
       chunk(title, this.theme.text, true),
     ])
     this.detail.content = new StyledText([chunk(`  ${detail}`, this.theme.muted)])
-    this.dismiss.fg = RGBA.fromHex(this.busy ? this.theme.muted : this.theme.text)
+    this.dismiss.fg = parseColor(this.busy ? this.theme.muted : this.theme.text)
     this.resume.visible = !contextUnavailable
-    this.resume.fg = RGBA.fromHex(this.busy ? this.theme.muted : this.theme.accent)
+    this.resume.fg = parseColor(this.busy ? this.theme.muted : this.theme.accent)
     this.dismiss.attributes = 0
     this.resume.attributes = TextAttributes.BOLD
   }
 }
 
-function chunk(text: string, color: string, bold = false): TextChunk {
+function chunk(text: string, color: ColorInput, bold = false): TextChunk {
   return {
     __isChunk: true,
     text,
-    fg: RGBA.fromHex(color),
+    fg: parseColor(color),
     attributes: bold ? TextAttributes.BOLD : 0,
   }
 }

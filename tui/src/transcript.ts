@@ -9,7 +9,9 @@ import {
   SyntaxStyle,
   TextAttributes,
   TextRenderable,
+  parseColor,
   type CliRenderer,
+  type ColorInput,
   type TextChunk,
   type TreeSitterClient,
 } from "@opentui/core"
@@ -26,12 +28,12 @@ import { hideScrollbars } from "./scrollbox"
 import { mergeToolEvent, renderToolEvent } from "./tool-renderers"
 
 export interface TranscriptTheme {
-  text: string
-  muted: string
-  error: string
-  user: string
-  userBackground: string | null
-  border: string
+  text: ColorInput
+  muted: ColorInput
+  error: ColorInput
+  user: ColorInput
+  userBackground: ColorInput | null
+  border: ColorInput
   syntax: SyntaxStyle
 }
 
@@ -144,7 +146,7 @@ export class Transcript {
     private readonly onNavigationChange?: (state: TranscriptNavigation) => void,
     private readonly workspace = "",
   ) {
-    this.codeRailColor = RGBA.fromHex(theme.border)
+    this.codeRailColor = parseColor(theme.border)
     this.root = new ScrollBoxRenderable(renderer, {
       id: "nanobot-tui-transcript",
       width: "100%",
@@ -173,7 +175,7 @@ export class Transcript {
   setTheme(theme: TranscriptTheme): void {
     const previousSyntax = this.theme.syntax
     this.theme = theme
-    this.codeRailColor = RGBA.fromHex(theme.border)
+    this.codeRailColor = parseColor(theme.border)
     for (const { renderable, tone } of this.styledText) renderable.fg = theme[tone]
     for (const { text, phase } of this.compactions.values()) {
       text.fg = phase === "failed" ? theme.error : theme.muted
@@ -192,7 +194,7 @@ export class Transcript {
     for (const frame of this.frames) frame.borderColor = theme.border
     for (const row of this.userRows) {
       row.backgroundColor = theme.userBackground
-        ? RGBA.fromHex(theme.userBackground)
+        ? parseColor(theme.userBackground)
         : RGBA.defaultBackground()
     }
     // Markdown may still be rendering this frame. Release the prior native
@@ -609,7 +611,7 @@ export class Transcript {
     const row = this.createRow(tone === "user" ? "user" : "notice", "row")
     if (tone === "user") {
       row.backgroundColor = this.theme.userBackground
-        ? RGBA.fromHex(this.theme.userBackground)
+        ? parseColor(this.theme.userBackground)
         : RGBA.defaultBackground()
       this.userRows.add(row)
     }
@@ -668,7 +670,7 @@ export class Transcript {
         chunks.push({
           __isChunk: true,
           text: label,
-          fg: RGBA.fromHex(this.theme.user),
+          fg: parseColor(this.theme.user),
           attributes: TextAttributes.BOLD,
         })
         cursor = start + label.length
@@ -684,7 +686,7 @@ export class Transcript {
         chunks.push({
           __isChunk: true,
           text: label,
-          fg: RGBA.fromHex(this.theme.user),
+          fg: parseColor(this.theme.user),
           attributes: TextAttributes.BOLD,
         })
       }

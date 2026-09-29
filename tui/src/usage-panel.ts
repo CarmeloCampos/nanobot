@@ -1,10 +1,11 @@
 import {
   BoxRenderable,
-  RGBA,
   StyledText,
   TextAttributes,
   TextRenderable,
+  parseColor,
   type CliRenderer,
+  type ColorInput,
   type TextChunk,
 } from "@opentui/core"
 
@@ -12,24 +13,24 @@ import { formatTokenCount } from "./context-panel"
 import type { SessionUsageSnapshot } from "./protocol"
 
 export interface UsagePanelTheme {
-  text: string
-  muted: string
-  border: string
-  accent: string
-  cached: string
-  warning: string
-  error: string
+  text: ColorInput
+  muted: ColorInput
+  border: ColorInput
+  accent: ColorInput
+  cached: ColorInput
+  warning: ColorInput
+  error: ColorInput
 }
 
 function known(value: number | undefined): value is number {
   return typeof value === "number" && Number.isFinite(value) && value >= 0
 }
 
-function chunk(text: string, color: string, bold = false): TextChunk {
+function chunk(text: string, color: ColorInput, bold = false): TextChunk {
   return {
     __isChunk: true,
     text,
-    fg: RGBA.fromHex(color),
+    fg: parseColor(color),
     attributes: bold ? TextAttributes.BOLD : 0,
   }
 }
@@ -152,6 +153,7 @@ export class UsagePanel {
         const slot = Math.max(1, Math.floor(width / rounds.length))
         const barWidth = Math.min(3, Math.max(1, slot - 1))
         const blocks = " ▁▂▃▄▅▆▇█"
+        const splitColors = !parseColor(theme.cached).equals(parseColor(theme.accent))
         const bars = rounds.map((round, index) => {
           const input = inputs[index] ?? 0
           const units = Math.max(1, Math.round(input / max * chartHeight * 8))
@@ -166,9 +168,9 @@ export class UsagePanel {
             const fill = Math.max(0, Math.min(8, units - row * 8))
             const cachedFill = cachedUnits === null ? null
               : Math.max(0, Math.min(fill, cachedUnits - row * 8))
-            if (fill === 8 && cachedFill !== null && cachedFill > 0 && cachedFill < 8) {
+            if (splitColors && fill === 8 && cachedFill !== null && cachedFill > 0 && cachedFill < 8) {
               const cell = chunk((blocks[cachedFill] ?? " ").repeat(barWidth), theme.cached)
-              cell.bg = RGBA.fromHex(theme.accent)
+              cell.bg = parseColor(theme.accent)
               chunks.push(cell)
             } else {
               // A partial top can contain three regions, but a cell has only two

@@ -2,14 +2,15 @@ import {
   BoxRenderable,
   TextRenderable,
   type CliRenderer,
+  type ColorInput,
 } from "@opentui/core"
 
 import type { SessionContextSnapshot } from "./protocol"
 
 export interface ContextPanelTheme {
-  text: string
-  border: string
-  accent: string
+  text: ColorInput
+  border: ColorInput
+  accent: ColorInput
 }
 
 export function formatTokenCount(value: number): string {

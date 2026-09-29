@@ -1,4 +1,4 @@
-import { RGBA, StyledText, TextAttributes, type TextChunk } from "@opentui/core"
+import { StyledText, TextAttributes, parseColor, type ColorInput, type TextChunk } from "@opentui/core"
 
 export interface FooterHint {
   key: string
@@ -7,10 +7,10 @@ export interface FooterHint {
 }
 
 export interface FooterHintTheme {
-  accent: string
-  danger: string
-  muted: string
-  separator: string
+  accent: ColorInput
+  danger: ColorInput
+  muted: ColorInput
+  separator: ColorInput
 }
 
 export type FooterMode =
@@ -100,11 +100,11 @@ function hint(key: string, label: string): FooterHint {
   return { key, label }
 }
 
-function chunk(text: string, color: string, bold = false): TextChunk {
+function chunk(text: string, color: ColorInput, bold = false): TextChunk {
   return {
     __isChunk: true,
     text,
-    fg: RGBA.fromHex(color),
+    fg: parseColor(color),
     attributes: bold ? TextAttributes.BOLD : 0,
   }
 }

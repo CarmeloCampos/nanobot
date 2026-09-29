@@ -2,6 +2,7 @@ import {
   TextRenderable,
   type BoxRenderable,
   type CliRenderer,
+  type ColorInput,
   type KeyEvent,
 } from "@opentui/core"
 
@@ -13,8 +14,8 @@ import {
 import { PickerMenu, type PickerMenuTheme } from "./picker-menu"
 
 interface RuntimeControlsTheme extends PickerMenuTheme {
-  accent: string
-  faint: string
+  accent: ColorInput
+  faint: ColorInput
 }
 
 type Choice =
