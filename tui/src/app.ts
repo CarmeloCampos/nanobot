@@ -911,7 +911,7 @@ export class NanobotTui {
     this.renderer.console.onCopySelection = (text) => void this.copySelection(text)
     this.handleResize()
     this.composer.focus()
-    this.transcript.header(options)
+    this.transcript.header({ workspace: options.workspace, version: options.version })
   }
 
   static async create(options: AppOptions): Promise<NanobotTui> {
@@ -1435,10 +1435,8 @@ export class NanobotTui {
         this.historyHasMore = false
         this.historyLoadingOlder = false
         this.transcript.reset({
-          model: this.modelName || this.modelPreset,
           workspace: this.options.workspace,
           version: this.options.version,
-          access: this.options.access,
         })
       }
       if (restoring || (!this.historyLoaded && this.options.chatId)) {

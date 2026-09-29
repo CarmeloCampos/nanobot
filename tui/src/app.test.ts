@@ -240,6 +240,28 @@ describe("NanobotTui layout", () => {
     expect(frame).toContain("Ready · 1.2s")
   })
 
+  test("keeps model and access details in the composer controls only", async () => {
+    setup = await createRenderer({ width: 100, height: 24, screenMode: "alternate-screen" })
+    NanobotTui.mount(
+      setup.renderer,
+      {
+        ...options,
+        model: "provider/resolved-model",
+        modelPreset: "selected-preset",
+        access: "full access",
+      },
+      client(),
+      new MockTreeSitterClient({ autoResolveTimeout: 0 }),
+    )
+    await setup.renderOnce()
+
+    const frame = setup.captureCharFrame()
+    expect(frame).not.toContain("provider/resolved-model")
+    expect(frame).toContain("selected-preset ▾")
+    expect(occurrences(frame, "full access")).toBe(1)
+    expect(frame).toContain(options.workspace)
+  })
+
   test("uses the available transcript width before wrapping the workspace", async () => {
     setup = await createRenderer({ width: 100, height: 24, screenMode: "alternate-screen" })
     const workspace = String.raw`D:\Documents\GitHub\nanobot\.worktrees\responsive-header-fixture`
@@ -3230,7 +3252,7 @@ describe("NanobotTui layout", () => {
     expect((failure as TextRenderable).fg.toInts().slice(0, 3)).toEqual([
       1, 3, 5,
     ].map((offset) => Number.parseInt(ui.palette.error.slice(offset, offset + 2), 16)))
-    ui.transcript.reset({ model: "model", workspace: "workspace", version: "test", access: "workspace" })
+    ui.transcript.reset({ workspace: "workspace", version: "test" })
     app.accept({ event: "context_compaction", chat_id: "chat", compaction_id: "recent", phase: "started" })
     await setup.renderOnce()
     expect(setup.captureCharFrame()).toContain("Compacting conversation…")

@@ -38,10 +38,8 @@ export interface TranscriptTheme {
 }
 
 export interface TranscriptHeader {
-  model: string
   workspace: string
   version: string
-  access: string
 }
 
 export interface TranscriptNavigation {
@@ -215,11 +213,7 @@ export class Transcript {
       paddingRight: 1,
     })
     const title = this.createText(`>_  nanobot  v${options.version}`, "text", true)
-    const context = this.createText([
-      "",
-      `${options.model}     ${options.access}`,
-      options.workspace,
-    ].join("\n"), "muted")
+    const context = this.createText(["", options.workspace].join("\n"), "muted")
     row.add(title)
     row.add(context)
     this.root.add(row)
