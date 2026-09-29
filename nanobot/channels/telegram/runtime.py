@@ -541,7 +541,7 @@ class TelegramChannel(BaseChannel):
     # Telegram-safe aliases are normalized before reaching the core router.
     # Canonical hyphenated commands stay on a separate handler (below).
     TELEGRAM_BUS_SLASH_COMMAND_RE = re.compile(
-        r"^/(?:new|compact|stop|restart|status|dream|history|goal|trigger|pairing|model|skill"
+        r"^/(?:new|compact|stop|restart|status|dream|history|goal|trigger|pairing|group|model|skill"
         r"|dream_log|dream_restore|dream_prompt|evaluator_prompt|evaluator-prompt)(?:@\w+)?(?:\s+.*)?$"
     )
 
@@ -1809,21 +1809,18 @@ class TelegramChannel(BaseChannel):
         Most specific match wins: ``"<chat_id>:<thread_id>"`` overrides
         ``"<chat_id>"``, which overrides the channel-wide ``group_policy``.
         """
-        overrides = self.config.group_policy_overrides
-        if not overrides:
-            return self.config.group_policy
+        from nanobot.group_policy import resolve_policy
 
-        chat_id = str(message.chat_id)
-        thread_id = getattr(message, "message_thread_id", None)
-        if thread_id is not None:
-            topic_policy = overrides.get(f"{chat_id}:{thread_id}")
-            if topic_policy is not None:
-                return topic_policy
-
-        chat_policy = overrides.get(chat_id)
-        if chat_policy is not None:
-            return chat_policy
-        return self.config.group_policy
+        return cast(
+            "Literal['open', 'mention']",
+            resolve_policy(
+                self.name,
+                str(message.chat_id),
+                thread_id=getattr(message, "message_thread_id", None),
+                static_overrides=self.config.group_policy_overrides,
+                default_policy=self.config.group_policy,
+            ),
+        )
 
     async def _is_group_message_for_bot(self, message: Message) -> bool:
         """Allow group messages when policy is open, @mentioned, or replying to the bot."""
