@@ -1455,6 +1455,70 @@ describe("NanobotTui layout", () => {
     }
   })
 
+  test("selects model presets beyond the runtime menu's visible limit", async () => {
+    const original = globalThis.fetch
+    const sent: string[] = []
+    globalThis.fetch = (async (input: string | URL | Request) => {
+      const url = String(input)
+      if (url.endsWith("/api/settings")) {
+        return new Response(JSON.stringify({
+          model_presets: [
+            { name: "default", model: "test/model" },
+            ...Array.from({ length: 10 }, (_, index) => ({
+              name: `preset-${index}`,
+              model: `test/model-${index}`,
+            })),
+          ],
+        }))
+      }
+      if (url.endsWith("/api/workspaces")) {
+        return new Response(JSON.stringify({ controls: { can_use_full_access: true } }))
+      }
+      return new Response(JSON.stringify({ sessions: [] }))
+    }) as typeof fetch
+    setup = await createRenderer({ width: 96, height: 24, screenMode: "alternate-screen" })
+    const app = NanobotTui.mount(
+      setup.renderer,
+      { ...options, apiUrl: "http://nanobot.test", apiToken: "secret" },
+      client(sent),
+      new MockTreeSitterClient({ autoResolveTimeout: 0 }),
+    )
+    app.accept({ event: "attached", chat_id: "chat" })
+    const ui = app as unknown as {
+      ready: boolean
+      runtimeControls: {
+        modelText: TextRenderable
+        visible: boolean
+        menuRoot: { getChildren(): unknown[] }
+      }
+    }
+
+    try {
+      await waitUntil(() => ui.ready)
+      await setup.renderOnce()
+      await setup.mockMouse.click(
+        ui.runtimeControls.modelText.x + 2,
+        ui.runtimeControls.modelText.y,
+      )
+      await waitUntil(() => ui.runtimeControls.visible)
+      await setup.flush()
+      expect(ui.runtimeControls.menuRoot.getChildren()).toHaveLength(9)
+      expect(setup.captureCharFrame()).toContain("1–8 of 11 · ↓")
+      expect(setup.captureCharFrame()).not.toContain("preset-8")
+
+      for (let index = 0; index < 9; index += 1) setup.mockInput.pressArrow("down")
+      await setup.flush()
+      expect(setup.captureCharFrame()).toContain("›   preset-8")
+      expect(setup.captureCharFrame()).toContain("3–10 of 11 · ↑↓")
+
+      setup.mockInput.pressEnter()
+      await waitUntil(() => sent.includes("/model preset-8"))
+      expect(ui.runtimeControls.visible).toBe(false)
+    } finally {
+      globalThis.fetch = original
+    }
+  })
+
   test("switches sessions only through the sessions command", async () => {
     const original = globalThis.fetch
     globalThis.fetch = ((input: string | URL | Request) => {

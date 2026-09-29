@@ -35,6 +35,7 @@ export class PickerMenu<T> {
   private items: T[] = []
   private matches: T[] = []
   private selected = 0
+  private windowStart = 0
   private query = ""
   private limit = 6
 
@@ -93,14 +94,13 @@ export class PickerMenu<T> {
     this.query = query
     this.limit = Math.max(1, limit)
     const words = query.trim().toLocaleLowerCase().split(/\s+/u).filter(Boolean)
-    this.matches = this.items
-      .filter((item) => {
-        const haystack = this.options.searchText(item).toLocaleLowerCase()
-        return words.every((word) => haystack.includes(word))
-      })
-      .slice(0, this.limit)
+    this.matches = this.items.filter((item) => {
+      const haystack = this.options.searchText(item).toLocaleLowerCase()
+      return words.every((word) => haystack.includes(word))
+    })
     if (changed) {
       this.selected = 0
+      this.windowStart = 0
     } else {
       const preserved = previous === undefined
         ? -1
@@ -111,12 +111,14 @@ export class PickerMenu<T> {
         ? preserved
         : Math.min(this.selected, Math.max(0, this.matches.length - 1))
     }
+    this.keepSelectionVisible()
     this.render()
   }
 
   move(direction: -1 | 1): boolean {
     if (!this.visible || this.matches.length < 2) return false
     this.selected = (this.selected + direction + this.matches.length) % this.matches.length
+    this.keepSelectionVisible()
     this.render()
     return true
   }
@@ -129,6 +131,7 @@ export class PickerMenu<T> {
     this.items = []
     this.matches = []
     this.selected = 0
+    this.windowStart = 0
     this.query = ""
     this.root.visible = false
     this.clear()
@@ -153,7 +156,9 @@ export class PickerMenu<T> {
       }))
       return
     }
-    for (const [index, item] of this.matches.entries()) {
+    const visibleMatches = this.matches.slice(this.windowStart, this.windowStart + this.limit)
+    for (const [visibleIndex, item] of visibleMatches.entries()) {
+      const index = this.windowStart + visibleIndex
       const selected = index === this.selected
       const rendered = this.options.render(item, selected)
       const content = typeof rendered === "string"
@@ -189,6 +194,34 @@ export class PickerMenu<T> {
         },
       }))
     }
+    if (visibleMatches.length < this.matches.length) {
+      const end = this.windowStart + visibleMatches.length
+      const directions = `${this.windowStart > 0 ? "↑" : ""}${end < this.matches.length ? "↓" : ""}`
+      this.root.add(new TextRenderable(this.renderer, {
+        id: `${this.options.id}-overflow`,
+        content: `  ${this.windowStart + 1}–${end} of ${this.matches.length} · ${directions}`,
+        width: "100%",
+        height: 1,
+        wrapMode: "none",
+        fg: this.theme.muted,
+        selectable: false,
+      }))
+    }
+  }
+
+  private keepSelectionVisible(): void {
+    if (this.matches.length === 0) {
+      this.selected = 0
+      this.windowStart = 0
+      return
+    }
+    const maxStart = Math.max(0, this.matches.length - this.limit)
+    if (this.selected < this.windowStart) {
+      this.windowStart = this.selected
+    } else if (this.selected >= this.windowStart + this.limit) {
+      this.windowStart = this.selected - this.limit + 1
+    }
+    this.windowStart = Math.min(Math.max(0, this.windowStart), maxStart)
   }
 
   private clear(): void {
