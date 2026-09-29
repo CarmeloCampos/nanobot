@@ -1503,13 +1503,13 @@ describe("NanobotTui layout", () => {
       await waitUntil(() => ui.runtimeControls.visible)
       await setup.flush()
       expect(ui.runtimeControls.menuRoot.getChildren()).toHaveLength(9)
-      expect(setup.captureCharFrame()).toContain("1–8 of 11 · ↓")
+      expect(setup.captureCharFrame()).toContain("1–8 of 11 ↓")
       expect(setup.captureCharFrame()).not.toContain("preset-8")
 
       for (let index = 0; index < 9; index += 1) setup.mockInput.pressArrow("down")
       await setup.flush()
       expect(setup.captureCharFrame()).toContain("›   preset-8")
-      expect(setup.captureCharFrame()).toContain("3–10 of 11 · ↑↓")
+      expect(setup.captureCharFrame()).toContain("3–10 of 11 ↑↓")
 
       setup.mockInput.pressEnter()
       await waitUntil(() => sent.includes("/model preset-8"))

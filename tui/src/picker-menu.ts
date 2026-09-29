@@ -199,7 +199,7 @@ export class PickerMenu<T> {
       const directions = `${this.windowStart > 0 ? "↑" : ""}${end < this.matches.length ? "↓" : ""}`
       this.root.add(new TextRenderable(this.renderer, {
         id: `${this.options.id}-overflow`,
-        content: `  ${this.windowStart + 1}–${end} of ${this.matches.length} · ${directions}`,
+        content: `  ${this.windowStart + 1}–${end} of ${this.matches.length} ${directions}`,
         width: "100%",
         height: 1,
         wrapMode: "none",

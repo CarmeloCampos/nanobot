@@ -42,7 +42,7 @@ describe("PickerMenu", () => {
     await setup.renderOnce()
 
     expect(menu.root.getChildren().filter((child) => child.id !== "test-picker-overflow")).toHaveLength(3)
-    expect(setup.captureCharFrame()).toContain("1–3 of 5 · ↓")
+    expect(setup.captureCharFrame()).toContain("1–3 of 5 ↓")
     expect(setup.captureCharFrame()).not.toContain("Choice 3")
 
     menu.move(1)
@@ -50,7 +50,7 @@ describe("PickerMenu", () => {
     menu.move(1)
     await setup.flush()
     expect(menu.current()?.id).toBe("3")
-    expect(setup.captureCharFrame()).toContain("2–4 of 5 · ↑↓")
+    expect(setup.captureCharFrame()).toContain("2–4 of 5 ↑↓")
     expect(setup.captureCharFrame()).toContain("› Choice 3")
     expect(setup.captureCharFrame()).not.toContain("Choice 0")
 
@@ -60,7 +60,7 @@ describe("PickerMenu", () => {
     menu.move(-1)
     await setup.flush()
     expect(menu.current()?.id).toBe("4")
-    expect(setup.captureCharFrame()).toContain("3–5 of 5 · ↑")
+    expect(setup.captureCharFrame()).toContain("3–5 of 5 ↑")
 
     const firstVisible = menu.root.getChildren()[0] as TextRenderable | undefined
     if (!firstVisible) throw new Error("picker row was not rendered")
@@ -88,7 +88,7 @@ describe("PickerMenu", () => {
     await setup.renderOnce()
     expect(menu.current()?.id).toBe("d")
     expect(setup.captureCharFrame()).toContain("› Choice d")
-    expect(setup.captureCharFrame()).toContain("2–3 of 3 · ↑")
+    expect(setup.captureCharFrame()).toContain("2–3 of 3 ↑")
 
     menu.update("e", 2)
     await setup.flush()
