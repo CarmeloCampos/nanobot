@@ -129,7 +129,7 @@ Inbound media is downloaded, verified against the digest WhatsApp reports, then 
 - Video, audio, documents, generic files — 16 MB.
 - Voice notes are transcribed when a transcription provider is configured; the audio file stays attached.
 
-Outbound media is uploaded first, then sent as the matching message type. Files over the limit for their type, or with an MIME type the platform does not accept, are skipped with an error in the log instead of failing the whole reply.
+Outbound media is uploaded first, then sent as the matching message type. Files over the configured limit or the platform's type limit are skipped with an error in the log instead of failing the whole reply. Formats outside the platform's supported list are sent as generic file attachments.
 
 Note that audio the agent sends arrives as a normal file attachment, not as a WhatsApp voice-note bubble.
 
@@ -142,15 +142,15 @@ The platform's send result determines whether a retry is safe:
 - **Rate limit or "not accepted for delivery"** (`429`, `503`): the message was not sent, so nanobot retries with backoff.
 - **A plain `500`, a dropped connection, or a read timeout**: WhatsApp cannot say whether the message was delivered. nanobot does **not** retry by default, because a duplicate is more disruptive than a missed reply. Set `retryAmbiguousSends` to `true` if you prefer a chance of duplicates over a chance of loss.
 
-Replies longer than 4096 characters are split into multiple messages and sent in order. The first chunk quotes the message being answered.
+Replies longer than 4096 characters are split into multiple messages and sent in order. The first chunk quotes the message being answered. During a retry, nanobot resumes at the failed chunk or attachment; it does not send earlier accepted parts again. This progress is kept in memory for the current delivery, not as a persistent outbound queue.
 
 At most one poller may run per agent token. If you start a second gateway against the same token, the older poll fails with `409`; nanobot logs this clearly and backs off. Run one gateway instance per agent.
 
 ## Operational notes
 
 - **Rate limits.** WhatsApp allows 12 sends, 12 read receipts, 15 polls, and 12 media requests per minute per agent. nanobot paces each method below its own limit and counts retries against the same budget, which is why progress messages are off by default.
-- **Durable cursor.** The poll cursor is written to disk after each handled message, so a restart resumes exactly where it stopped and a replayed batch is deduplicated by message id.
-- **Retention.** WhatsApp keeps updates for 30 days. nanobot starts from the current head on first run, so it does not answer old history.
+- **Durable cursor.** nanobot records message ids before handling them and saves the server cursor after each batch. A restart deduplicates recorded ids. A crash between recording and dispatch can lose that message; this is not exactly-once delivery. If state cannot be saved, the channel stops instead of acknowledging more traffic.
+- **Retention.** WhatsApp keeps updates for 30 days. On first run, nanobot saves the current time and reads from `offset=0`, discarding messages older than that time or without a timestamp. This avoids gaps after empty polls. Keep the gateway clock synchronized. Timestamps have one-second precision, so messages from the startup second are included. Reading a large backlog can delay the first reply. Restarts retain the original boundary and cursor; changing the token starts a new boundary.
 - **Invalid token.** If WhatsApp rejects the token, the channel stops and logs an actionable message instead of retrying forever.
 - **Privacy.** Agent conversations are not end-to-end encrypted: Meta processes them on the agent's behalf. Your other WhatsApp chats are unaffected. Do not use this channel for data that requires end-to-end encryption.
 

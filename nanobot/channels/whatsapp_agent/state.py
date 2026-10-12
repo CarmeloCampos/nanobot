@@ -70,6 +70,9 @@ class WhatsAppAgentState:
 
     offset: int | None = None
     initialized: bool = False
+    # Persist the first-start boundary while scanning retained updates. None
+    # preserves cursors written before timestamp filtering was introduced.
+    ignore_before: int | None = None
     token_fingerprint: str = ""
     # Most recent inbound identifier, kept so a restart can reply before the
     # next message arrives. The API only accepts this value in ``to``.
@@ -98,6 +101,7 @@ class WhatsAppAgentState:
         return cls(
             offset=_optional_int(payload.get("offset")),
             initialized=bool(payload.get("initialized")),
+            ignore_before=_optional_int(payload.get("ignore_before")),
             token_fingerprint=str(payload.get("token_fingerprint") or ""),
             creator_id=str(payload.get("creator_id") or ""),
             seen=OrderedDict.fromkeys(seen_entries[-_SEEN_MAX:]),
@@ -109,6 +113,7 @@ class WhatsAppAgentState:
         payload = {
             "offset": self.offset,
             "initialized": self.initialized,
+            "ignore_before": self.ignore_before,
             "token_fingerprint": self.token_fingerprint,
             "creator_id": self.creator_id,
             "seen": list(self.seen),
@@ -125,13 +130,14 @@ class WhatsAppAgentState:
 
         ``next_offset`` is only meaningful for the agent that issued it, so a
         rotated or replaced token starts a fresh stream. Returns True when the
-        caller must re-resolve the head on the next poll.
+        caller must establish a new starting point on the next poll.
         """
         fingerprint = token_fingerprint(token)
         if fingerprint and fingerprint == self.token_fingerprint:
             return False
         self.offset = None
         self.initialized = False
+        self.ignore_before = None
         self.creator_id = ""
         self.seen.clear()
         self.last_status.clear()

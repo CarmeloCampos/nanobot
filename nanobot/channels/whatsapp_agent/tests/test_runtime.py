@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import asyncio
 import base64
+import gc
 import hashlib
 import json
 from pathlib import Path
@@ -18,7 +19,9 @@ import pytest
 from loguru import logger
 
 from nanobot.bus.events import OutboundMessage
+from nanobot.bus.outbound_events import ProgressEvent
 from nanobot.bus.queue import MessageBus
+from nanobot.channels.manager import ChannelManager
 from nanobot.channels.whatsapp_agent import runtime as runtime_module
 from nanobot.channels.whatsapp_agent.protocol import (
     APIError,
@@ -30,6 +33,11 @@ from nanobot.channels.whatsapp_agent.runtime import (
     WhatsAppAgentChannel,
     WhatsAppAgentConfig,
 )
+
+
+@pytest.fixture(autouse=True)
+def _isolate_runtime_root(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+    monkeypatch.setattr("nanobot.config.loader._current_config_path", tmp_path / "config.json")
 
 
 class _Bus(MessageBus):
@@ -161,23 +169,132 @@ def test_empty_204_reuses_the_same_offset(tmp_path: Path, monkeypatch: pytest.Mo
     assert seen_params[0]["offset"] == 77
 
 
-def test_first_poll_omits_offset_to_skip_the_backlog(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
-    channel = _channel(tmp_path)
+@pytest.mark.parametrize("poll_timeout", [0, 25])
+def test_first_empty_poll_does_not_skip_traffic_between_requests(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, poll_timeout: int,
+):
+    monkeypatch.setattr(runtime_module.time, "time", lambda: 1736844652)
+    channel = _channel(tmp_path, pollTimeout=poll_timeout, markRead=False, typingIndicator=False)
     channel._load_state()
-    seen_params: list[dict[str, Any]] = []
+    messages: list[dict[str, Any]] = []
 
     async def fake_request(method, path, *, method_key, params=None, **kwargs):
-        seen_params.append(dict(params or {}))
-        return 204, None
+        # Official semantics: omission resolves the head at each request.
+        offset = params.get("offset", len(messages))
+        pending = messages[offset:]
+        return (200, _poll_body(pending, len(messages))) if pending else (204, None)
 
     monkeypatch.setattr(channel, "_request", fake_request)
-    channel._client = object()  # type: ignore[assignment]
 
-    asyncio.run(channel._poll_once())
+    async def run():
+        assert await channel._poll_once() is None
+        messages.append(_text_message("wamid.between"))
+        batch = await channel._poll_once()
+        assert batch is not None
+        assert [message.wamid for message in batch.messages] == ["wamid.between"]
+        await channel._process_batch(batch)
+        assert channel.bus.inbound_messages[0].content == "hi"
 
-    # Omitting ``offset`` resolves the head, so a first run never replays
-    # up to 30 days of history into an auto-replying agent.
-    assert "offset" not in seen_params[0]
+    asyncio.run(run())
+
+
+def test_bootstrap_filters_history_across_pages_and_restarts(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+):
+    monkeypatch.setattr(runtime_module.time, "time", lambda: 100)
+    channel = _channel(tmp_path, markRead=False, typingIndicator=False)
+    channel._load_state()
+    old = dict(_text_message("old"), timestamp="99")
+    undated = dict(_text_message("undated"), timestamp=None)
+    fresh = dict(_text_message("fresh"), timestamp="100")
+    offsets: list[int] = []
+
+    async def request(method, path, *, params, **kwargs):
+        offsets.append(params["offset"])
+        if params["offset"] == 0:
+            return 200, _poll_body([old], 10)
+        return 200, _poll_body([undated, fresh], 9007199254740993)
+
+    monkeypatch.setattr(channel, "_request", request)
+
+    async def run():
+        batch = await channel._poll_once()
+        assert batch is not None
+        await channel._process_batch(batch)
+        assert not channel.bus.inbound_messages
+        # Restart while still scanning the backlog must retain the original
+        # boundary, not skip a message sent since the first process started.
+        monkeypatch.setattr(runtime_module.time, "time", lambda: 200)
+        restarted = _channel(tmp_path, markRead=False, typingIndicator=False)
+        restarted._load_state()
+        monkeypatch.setattr(restarted, "_request", request)
+        batch = await restarted._poll_once()
+        assert batch is not None
+        await restarted._process_batch(batch)
+        await restarted._process_batch(batch)
+        assert [m.metadata["message_id"] for m in restarted.bus.inbound_messages] == ["fresh"]
+        assert restarted._state.offset == 9007199254740993
+
+    asyncio.run(run())
+    assert offsets == [0, 10]
+
+
+def test_empty_bootstrap_retains_boundary_after_restart_and_backoff(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+):
+    from unittest.mock import AsyncMock
+
+    monkeypatch.setattr(runtime_module.time, "time", lambda: 100)
+    first = _channel(tmp_path)
+    first._load_state()
+    monkeypatch.setattr(first, "_request", AsyncMock(return_value=(204, None)))
+    asyncio.run(first._poll_once())
+
+    monkeypatch.setattr(runtime_module.time, "time", lambda: 200)
+    second = _channel(tmp_path, markRead=False, typingIndicator=False)
+    second._load_state()
+    request = AsyncMock(side_effect=[
+        httpx.ConnectError("offline"),
+        (200, _poll_body([dict(_text_message("between"), timestamp="150")], 42)),
+    ])
+    monkeypatch.setattr(second, "_request", request)
+
+    async def run():
+        with pytest.raises(httpx.ConnectError):
+            await second._poll_once()
+        batch = await second._poll_once()
+        assert batch is not None
+        await second._process_batch(batch)
+        assert len(second.bus.inbound_messages) == 1
+
+    asyncio.run(run())
+    assert all(call.kwargs["params"]["offset"] == 0 for call in request.await_args_list)
+    assert second._state.ignore_before == 100
+
+
+def test_state_write_failure_stops_before_poll_or_acknowledgement(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+):
+    from unittest.mock import AsyncMock
+
+    channel = _channel(tmp_path)
+    channel._load_state()
+    request = AsyncMock()
+    dispatch = AsyncMock()
+
+    def fail_save(path):
+        raise OSError("disk full")
+
+    monkeypatch.setattr(channel._state, "save", fail_save)
+    monkeypatch.setattr(channel, "_request", request)
+    monkeypatch.setattr(channel, "_dispatch", dispatch)
+    with pytest.raises(OSError, match="disk full"):
+        asyncio.run(channel._poll_once())
+    fresh = dict(_text_message("fresh"), timestamp=str(channel._state.ignore_before))
+    with pytest.raises(OSError, match="disk full"):
+        asyncio.run(channel._process_batch(_parse(_poll_body([fresh]))))
+    request.assert_not_awaited()
+    dispatch.assert_not_awaited()
 
 
 def test_batch_advances_and_persists_the_cursor(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
@@ -406,11 +523,37 @@ def test_media_uses_the_matching_payload_object_only(tmp_path: Path, monkeypatch
     assert set(sent[0]) == {"messaging_product", "to", "type", "image"}
 
 
-def test_oversized_media_is_skipped_before_upload(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
-    channel = _channel(tmp_path, maxMediaMb=1)
+def test_unsupported_media_format_is_sent_as_a_generic_document(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+):
+    from unittest.mock import AsyncMock
+
+    channel = _channel(tmp_path)
+    channel._state.note_creator("user:55")
+    attachment = tmp_path / "chart.svg"
+    attachment.write_text('<svg xmlns="http://www.w3.org/2000/svg"/>', encoding="utf-8")
+    upload = AsyncMock(return_value="MEDIA1")
+    request = AsyncMock(return_value={"messages": [{"id": "out"}]})
+    monkeypatch.setattr(channel, "_upload_media", upload)
+    monkeypatch.setattr(channel, "_request_ok", request)
+    asyncio.run(channel.send(OutboundMessage(
+        channel.name, "creator", "", media=[str(attachment)],
+    )))
+    upload.assert_awaited_once_with(attachment, "application/octet-stream")
+    payload = request.call_args.kwargs["json_body"]
+    assert payload["type"] == "document"
+    assert payload["document"] == {"id": "MEDIA1", "filename": "chart.svg"}
+    assert "image" not in payload
+
+
+@pytest.mark.parametrize("max_mb,size_mb", [(1, 2), (16, 6)])
+def test_oversized_media_is_skipped_before_upload(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, max_mb: int, size_mb: int,
+):
+    channel = _channel(tmp_path, maxMediaMb=max_mb)
     channel._state.note_creator("user:55")
     big = tmp_path / "big.png"
-    big.write_bytes(b"\x89PNG\r\n\x1a\n" + b"0" * (6 * 1024 * 1024))
+    big.write_bytes(b"\x89PNG\r\n\x1a\n" + b"0" * (size_mb * 1024 * 1024))
     calls: list[str] = []
 
     async def fake_request_ok(method, path, *, method_key, **kwargs):
@@ -430,6 +573,147 @@ def test_oversized_media_is_skipped_before_upload(tmp_path: Path, monkeypatch: p
     )
 
     assert calls == []
+
+
+@pytest.mark.parametrize("status,code", [(429, 130429), (503, 131016)])
+def test_manager_retry_resumes_after_acknowledged_parts(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, status: int, code: int,
+):
+    from nanobot.config.schema import Config
+
+    channel = _channel(tmp_path)
+    channel._state.note_creator("user:55")
+    delivered: list[str] = []
+    attempts = 0
+
+    async def request(method, path, *, json_body=None, **kwargs):
+        nonlocal attempts
+        attempts += 1
+        if attempts == 2:
+            raise WhatsAppAgentAPIError(APIError(status, code, "not accepted", "", ""))
+        delivered.append(json_body["text"]["body"])
+        return {"messages": [{"id": str(attempts)}]}
+
+    monkeypatch.setattr(channel, "_request_ok", request)
+    monkeypatch.setattr("nanobot.channels.manager._SEND_RETRY_DELAYS", (0,))
+    manager = object.__new__(ChannelManager)
+    manager.config = Config()
+    message = OutboundMessage(channel=channel.name, chat_id="creator", content="A" * 4096 + "B")
+    asyncio.run(manager._send_with_retry(channel, message))
+    assert delivered == ["A" * 4096, "B"]
+    assert not channel._pending_sends
+
+
+@pytest.mark.parametrize("retry_ambiguous", [False, True])
+def test_media_failure_never_replays_accepted_text_or_attachments(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, retry_ambiguous: bool,
+):
+    from nanobot.config.schema import Config
+
+    channel = _channel(tmp_path, retryAmbiguousSends=retry_ambiguous)
+    channel._state.note_creator("user:55")
+    attachment = tmp_path / "document.txt"
+    attachment.write_text("test", encoding="utf-8")
+    sent: list[str] = []
+    media_attempts = 0
+
+    async def request(method, path, *, json_body=None, **kwargs):
+        nonlocal media_attempts
+        if path == "/media":
+            return {"id": "MEDIA1"}
+        if json_body["type"] == "document":
+            media_attempts += 1
+            if media_attempts == 2:
+                raise WhatsAppAgentAPIError(APIError(500, 2, "unknown outcome", "", ""))
+        sent.append(json_body["type"])
+        return {"messages": [{"id": str(len(sent))}]}
+
+    monkeypatch.setattr(channel, "_request_ok", request)
+    monkeypatch.setattr("nanobot.channels.manager._SEND_RETRY_DELAYS", (0,))
+    manager = object.__new__(ChannelManager)
+    manager.config = Config()
+    message = OutboundMessage(
+        channel=channel.name, chat_id="creator", content="Files",
+        media=[str(attachment), str(attachment)],
+    )
+    asyncio.run(manager._send_with_retry(channel, message))
+    assert sent == ["text", "document"] + (["document"] if retry_ambiguous else [])
+    assert media_attempts == (3 if retry_ambiguous else 2)
+    assert not channel._pending_sends
+
+
+def test_abandoned_or_cancelled_sends_release_retry_progress(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+):
+    from unittest.mock import AsyncMock
+
+    channel = _channel(tmp_path)
+    channel._state.note_creator("user:55")
+    request = AsyncMock(side_effect=WhatsAppAgentAPIError(APIError(429, 130429, "", "", "")))
+    monkeypatch.setattr(channel, "_request_ok", request)
+
+    async def abandon():
+        # No successful retry follows; collecting the envelope must remove its
+        # progress even when the failure was retryable.
+        with pytest.raises(WhatsAppAgentAPIError):
+            await channel.send(OutboundMessage(channel.name, "creator", "hello"))
+
+    asyncio.run(abandon())
+    request.reset_mock(side_effect=True)
+    gc.collect()
+    assert not channel._pending_sends
+
+    request.side_effect = asyncio.CancelledError()
+    message = OutboundMessage(channel.name, "creator", "hello")
+    with pytest.raises(asyncio.CancelledError):
+        asyncio.run(channel.send(message))
+    assert not channel._pending_sends
+
+
+@pytest.mark.parametrize("options,expected", [
+    ({}, []),
+    ({"sendProgress": True}, ["Working"]),
+    ({"sendToolHints": True}, ["Running tool"]),
+    ({"sendProgress": True, "sendToolHints": True}, ["Working", "Running tool"]),
+])
+async def test_manager_dispatch_respects_progress_opt_ins(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, options: dict, expected: list[str],
+):
+    from nanobot.config.schema import Config
+
+    config = Config.model_validate({"channels": {
+        "websocket": {"enabled": False},
+        "whatsapp_agent": {"enabled": True, "token": "test-token", **options},
+    }})
+    manager = ChannelManager(config, MessageBus())
+    channel = manager.channels["whatsapp_agent"]
+    channel._state.note_creator("user:55")
+    delivered: list[str] = []
+    finished = asyncio.Event()
+
+    async def request(method, path, *, json_body=None, **kwargs):
+        body = json_body["text"]["body"]
+        delivered.append(body)
+        if body == "Done":
+            finished.set()
+        return {"messages": [{"id": str(len(delivered))}]}
+
+    monkeypatch.setattr(channel, "_request_ok", request)
+    dispatcher = asyncio.create_task(manager._dispatch_outbound())
+    try:
+        for content, event in (
+            ("Working", ProgressEvent()),
+            ("Running tool", ProgressEvent(tool_hint=True)),
+            ("Done", None),
+        ):
+            await manager.bus.publish_outbound(OutboundMessage(
+                channel.name, "creator", content, event=event,
+            ))
+        await asyncio.wait_for(finished.wait(), timeout=2)
+        assert delivered == expected + ["Done"]
+    finally:
+        dispatcher.cancel()
+        await asyncio.gather(dispatcher, return_exceptions=True)
 
 
 # ----------------------------------------------------------------------
@@ -661,7 +945,7 @@ def test_restart_with_a_new_token_does_not_reuse_the_old_cursor(
     asyncio.run(replacement._poll_once())
 
     # next_offset belongs to the agent that issued it, so it is not replayed.
-    assert "offset" not in seen[0]
+    assert seen[0]["offset"] == 0
 
 
 def test_the_token_never_appears_in_logs_or_persisted_state(
