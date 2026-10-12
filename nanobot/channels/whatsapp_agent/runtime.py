@@ -24,14 +24,15 @@ import mimetypes
 import time
 from collections import deque
 from contextlib import suppress
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, cast
+from weakref import ReferenceType, ref
 
 import httpx
 from pydantic import Field
 
 from nanobot.bus.events import OutboundMessage
-from nanobot.bus.outbound_events import ProgressEvent
 from nanobot.bus.queue import MessageBus
 from nanobot.channels.base import BaseChannel
 from nanobot.channels.whatsapp_agent.protocol import (
@@ -148,6 +149,14 @@ class _RollingWindowLimiter:
             await asyncio.sleep(_RATE_WINDOW_SECONDS - (now - events[0]) + 0.05)
 
 
+@dataclass
+class _PendingSend:
+    """Resume the manager's same-envelope retry without replaying accepted parts."""
+
+    message: ReferenceType[OutboundMessage]
+    next_part: int = 0
+
+
 class WhatsAppAgentChannel(BaseChannel):
     """WhatsApp Agent Platform channel using the official agent API."""
 
@@ -166,6 +175,7 @@ class WhatsAppAgentChannel(BaseChannel):
         self._limiter = _RollingWindowLimiter(RATE_LIMITS, _RATE_LIMIT_MARGIN)
         self._state = WhatsAppAgentState()
         self._typing_task: asyncio.Task[None] | None = None
+        self._pending_sends: dict[int, _PendingSend] = {}
 
     # ------------------------------------------------------------------
     # Transport helpers
@@ -310,10 +320,9 @@ class WhatsAppAgentChannel(BaseChannel):
         before the batch is handled would drop messages. The write is therefore
         ordered after each message is recorded and fsynced by ``state.save``.
         """
-        try:
-            self._state.save(self._state_path())
-        except OSError:
-            self.logger.exception("Failed to persist WhatsApp Agent poll state")
+        # Stop on failure: continuing would acknowledge traffic against state
+        # that cannot survive a restart (including the first-start boundary).
+        self._state.save(self._state_path())
 
     # ------------------------------------------------------------------
     # Lifecycle
@@ -410,13 +419,19 @@ class WhatsAppAgentChannel(BaseChannel):
 
     async def _poll_once(self) -> PollBatch | None:
         """Run one long poll. Returns None when the timeout elapsed empty."""
+        if self._state.offset is None:
+            # An offset-less 204 has no cursor. Repeating that request skips
+            # traffic between polls. Start at the documented retained cursor
+            # instead and filter history by a durable first-start timestamp.
+            self._state.offset = 0
+            self._state.ignore_before = int(time.time())
+            self._persist()
         params: dict[str, Any] = {
             "limit": _DEFAULT_POLL_LIMIT,
             "timeout": self.config.poll_timeout,
+            # Server-issued next_offset is replayed unchanged after bootstrap.
+            "offset": self._state.offset,
         }
-        if self._state.initialized and self._state.offset is not None:
-            # next_offset is a signed 64-bit integer passed back unchanged.
-            params["offset"] = self._state.offset
 
         status_code, payload = await self._request(
             "GET", "/updates", method_key="updates", params=params
@@ -437,6 +452,11 @@ class WhatsAppAgentChannel(BaseChannel):
             self._state.note_status(receipt.wamid, receipt.status)
 
         for message in batch.messages:
+            if self._state.ignore_before is not None and (
+                message.timestamp is None or message.timestamp < self._state.ignore_before
+            ):
+                # Never auto-reply to retained history or undated entries.
+                continue
             if self._state.has_message(message.wamid):
                 continue
             # Record before handling: a crash after this point re-reads the
@@ -716,9 +736,7 @@ class WhatsAppAgentChannel(BaseChannel):
             msg.event.notify or self.show_compaction_notices
         ):
             return
-        if isinstance(msg.event, ProgressEvent):
-            # Progress is disabled by default; never spend send budget on it.
-            return
+        # ChannelManager already applies the progress/tool-hint opt-in policy.
 
         to = self._recipient()
         if not to:
@@ -739,11 +757,34 @@ class WhatsAppAgentChannel(BaseChannel):
         reply_to = quote if isinstance(quote, str) and quote else None
 
         chunks = split_message(msg.content, TEXT_MAX_CHARS)
-        for index, chunk in enumerate(chunks):
-            await self._send_text(to, chunk, reply_to if index == 0 else None)
+        key = id(msg)
+        pending = self._pending_sends.get(key)
+        if pending is None:
+            # The manager keeps this exact envelope alive while retrying. A
+            # weak reference also releases progress when retries are exhausted.
+            pending = _PendingSend(ref(msg, lambda _: self._pending_sends.pop(key, None)))
+            self._pending_sends[key] = pending
+        try:
+            for index, chunk in enumerate(chunks):
+                if index < pending.next_part:
+                    continue
+                await self._send_text(to, chunk, reply_to if index == 0 else None)
+                pending.next_part = index + 1
 
-        for media_path in msg.media or []:
-            await self._send_media(to, media_path)
+            for index, media_path in enumerate(msg.media or [], start=len(chunks)):
+                if index < pending.next_part:
+                    continue
+                await self._send_media(to, media_path)
+                pending.next_part = index + 1
+        except asyncio.CancelledError:
+            self._pending_sends.pop(key, None)
+            raise
+        except Exception as exc:
+            if not self.should_retry_send_error(exc):
+                self._pending_sends.pop(key, None)
+            raise
+        else:
+            self._pending_sends.pop(key, None)
 
     async def _send_text(self, to: str, body: str, reply_to: str | None) -> None:
         payload: dict[str, Any] = {
@@ -783,8 +824,12 @@ class WhatsAppAgentChannel(BaseChannel):
             return
         size = path.stat().st_size
         mime_type = self._detect_mime(path)
+        if mime_type not in ACCEPTED_UPLOAD_MIME:
+            # Keep the upload MIME and the message kind consistent: formats
+            # outside the platform's list can only be generic documents.
+            mime_type = "application/octet-stream"
         kind = outbound_kind_for_mime(mime_type)
-        limit = media_limit_for(mime_type, kind)
+        limit = min(media_limit_for(mime_type, kind), self.config.max_media_mb * 1024 * 1024)
         if size > limit:
             self.logger.error(
                 "Skipping {} ({} bytes) for {}: exceeds the {}-byte limit",
@@ -794,10 +839,6 @@ class WhatsAppAgentChannel(BaseChannel):
                 limit,
             )
             return
-        if mime_type not in ACCEPTED_UPLOAD_MIME:
-            # The generic binary type is accepted for any file up to 16 MB.
-            mime_type = "application/octet-stream"
-
         media_id = await self._upload_media(path, mime_type)
         if kind == "sticker":
             # Stickers reject captions and extra payload objects.

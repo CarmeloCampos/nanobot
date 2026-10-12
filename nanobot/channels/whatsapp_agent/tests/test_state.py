@@ -16,6 +16,7 @@ def test_cursor_round_trips_through_disk(tmp_path: Path):
     path = tmp_path / "state.json"
     state = WhatsAppAgentState()
     state.reset_for_token("token-a")
+    state.ignore_before = 100
     state.accept_offset(9007199254740993)
     state.note_message("wamid.1")
     state.note_status("wamid.out", "read")
@@ -27,6 +28,7 @@ def test_cursor_round_trips_through_disk(tmp_path: Path):
     # next_offset is a signed 64-bit value replayed unchanged.
     assert reloaded.offset == 9007199254740993
     assert reloaded.initialized is True
+    assert reloaded.ignore_before == 100
     assert reloaded.has_message("wamid.1") is True
     assert reloaded.last_status["wamid.out"] == "read"
     assert reloaded.creator_id == "user:55"
@@ -58,12 +60,14 @@ def test_rotating_the_token_discards_a_foreign_cursor():
     state = WhatsAppAgentState()
     state.reset_for_token("token-a")
     state.accept_offset(42)
+    state.ignore_before = 100
     state.note_message("wamid.1")
 
     # next_offset is only meaningful for the agent that issued it.
     assert state.reset_for_token("token-b") is True
     assert state.offset is None
     assert state.initialized is False
+    assert state.ignore_before is None
     assert state.has_message("wamid.1") is False
 
 
@@ -127,3 +131,4 @@ def test_legacy_state_without_creator_id_loads():
 
     assert state.offset == 5
     assert state.creator_id == ""
+    assert state.ignore_before is None
