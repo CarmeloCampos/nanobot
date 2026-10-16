@@ -2,7 +2,8 @@
   "setup": {
     "docsLabel": "Abrir o guia de configuração do agente",
     "officialLabel": "Abrir a ajuda de agentes do WhatsApp",
-    "summary": "Conecte o nanobot como agente oficial de terceiros na sua própria conta do WhatsApp. Só você pode conversar com ele, e ele não acessa suas outras conversas.",
+    "summary": "Conecte o nanobot pela API do WhatsApp Agent Platform. Só você pode conversar com ele, e ele não pode acessar suas outras conversas do WhatsApp.",
+    "privacyNotice": "As conversas com o agente não têm criptografia de ponta a ponta. As mensagens são processadas pelo nanobot e pelo provedor de modelos que você configurou.",
     "fields": {
       "token": {
         "label": "Token de API",

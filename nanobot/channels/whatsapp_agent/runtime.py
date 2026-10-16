@@ -61,7 +61,7 @@ from nanobot.channels.whatsapp_agent.state import (
     default_state_dir,
     token_fingerprint,
 )
-from nanobot.config.schema import Base
+from nanobot.config_base import Base
 from nanobot.events import ContextCompactionEvent
 from nanobot.utils.helpers import safe_filename, split_message
 

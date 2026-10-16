@@ -2,7 +2,8 @@
   "setup": {
     "docsLabel": "エージェント設定ガイドを開く",
     "officialLabel": "WhatsApp エージェントのヘルプを開く",
-    "summary": "nanobot を公式のサードパーティエージェントとして自分の WhatsApp アカウントに接続します。会話できるのは本人だけで、他のチャットにはアクセスできません。",
+    "summary": "WhatsApp Agent Platform API を通じて nanobot を接続します。会話できるのは本人だけで、他の WhatsApp チャットにはアクセスできません。",
+    "privacyNotice": "エージェントとのチャットはエンドツーエンド暗号化されません。メッセージは nanobot と設定したモデルプロバイダーによって処理されます。",
     "fields": {
       "token": {
         "label": "API トークン",

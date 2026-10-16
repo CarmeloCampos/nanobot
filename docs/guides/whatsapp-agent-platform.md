@@ -1,6 +1,10 @@
-# Build an official WhatsApp agent with nanobot
+# Connect nanobot to WhatsApp Agent Platform
 
 This guide connects nanobot to WhatsApp through the `whatsapp_agent` channel, which uses the **official WhatsApp Agent Platform** API. The agent appears as its own chat inside WhatsApp and talks only to you.
+
+nanobot is an independent third-party project, not a WhatsApp product. Using this API does not imply endorsement by WhatsApp.
+
+**Before connecting:** agent chats are not end-to-end encrypted. nanobot and your configured model provider process these messages. Review the [WhatsApp third-party agent terms](https://www.whatsapp.com/legal/third-party-agents-terms) and your provider's data policies before sharing sensitive information.
 
 This is a different product from the [`whatsapp`](./whatsapp-ai-agent.md) channel.
 
@@ -17,7 +21,7 @@ This is a different product from the [`whatsapp`](./whatsapp-ai-agent.md) channe
 | Availability | Limited countries, per account | Wherever WhatsApp can link a device |
 | Account risk | Officially supported interface | Uses an unofficial linked-device protocol |
 
-Choose `whatsapp_agent` when you want an official, sandboxed personal assistant that WhatsApp itself provides, and you do not need group access. Keep `whatsapp` when you need groups, media breadth, or availability in a country where the Agent Platform has not rolled out.
+Choose `whatsapp_agent` when you want to connect your own nanobot through WhatsApp's agent API and do not need group access. This limits which WhatsApp chats the channel can access; it does not sandbox nanobot's tools. Keep `whatsapp` when you need groups, media breadth, or availability in a country where the Agent Platform has not rolled out.
 
 Both channels can be enabled at once with different names and different access rules.
 
@@ -152,7 +156,7 @@ At most one poller may run per agent token. If you start a second gateway agains
 - **Durable cursor.** nanobot records message ids before handling them and saves the server cursor after each batch. A restart deduplicates recorded ids. A crash between recording and dispatch can lose that message; this is not exactly-once delivery. If state cannot be saved, the channel stops instead of acknowledging more traffic.
 - **Retention.** WhatsApp keeps updates for 30 days. On first run, nanobot saves the current time and reads from `offset=0`, discarding messages older than that time or without a timestamp. This avoids gaps after empty polls. Keep the gateway clock synchronized. Timestamps have one-second precision, so messages from the startup second are included. Reading a large backlog can delay the first reply. Restarts retain the original boundary and cursor; changing the token starts a new boundary.
 - **Invalid token.** If WhatsApp rejects the token, the channel stops and logs an actionable message instead of retrying forever.
-- **Privacy.** Agent conversations are not end-to-end encrypted: Meta processes them on the agent's behalf. Your other WhatsApp chats are unaffected. Do not use this channel for data that requires end-to-end encryption.
+- **Privacy.** Agent conversations are not end-to-end encrypted. nanobot processes these messages and sends them to your configured model provider. Downloaded attachments and session history may remain on the nanobot host. Your other WhatsApp chats are unaffected. Do not use this channel for data that requires end-to-end encryption.
 
 ## Troubleshooting
 

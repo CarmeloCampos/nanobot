@@ -2,7 +2,8 @@
   "setup": {
     "docsLabel": "Open agent setup guide",
     "officialLabel": "Open WhatsApp agent help",
-    "summary": "Connect nanobot as an official third-party agent in your own WhatsApp account. Only you can chat with it, and it cannot access your other chats.",
+    "summary": "Connect nanobot through WhatsApp's Agent Platform API. Only you can chat with it, and it cannot access your other WhatsApp chats.",
+    "privacyNotice": "Agent chats are not end-to-end encrypted. Messages are processed by nanobot and your configured model provider.",
     "fields": {
       "token": {
         "label": "API token",

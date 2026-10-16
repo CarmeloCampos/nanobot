@@ -9,7 +9,7 @@ Connect nanobot to Telegram, Discord, Slack, WeChat, Email, Mattermost, Linear, 
 | Slack | [Build a Slack AI Agent with nanobot](./guides/slack-ai-agent.md) |
 | Feishu | [Build a Feishu AI Agent with nanobot](./guides/feishu-ai-agent.md) |
 | WhatsApp | [Build a WhatsApp AI Agent with nanobot](./guides/whatsapp-ai-agent.md) |
-| WhatsApp Agent Platform | [Build an official WhatsApp agent with nanobot](./guides/whatsapp-agent-platform.md) |
+| WhatsApp Agent Platform | [Connect nanobot to WhatsApp Agent Platform](./guides/whatsapp-agent-platform.md) |
 | WeChat | [Build a WeChat AI Agent with nanobot](./guides/wechat-ai-agent.md) |
 | QQ | [Build a QQ AI Agent with nanobot](./guides/qq-ai-agent.md) |
 | Email | [Build an Email AI Agent with nanobot](./guides/email-ai-agent.md) |
@@ -481,7 +481,7 @@ Modern WhatsApp can deliver a sender's LID instead of their phone number. nanobo
 
 Connects nanobot through the **official** WhatsApp Agent Platform API. The agent appears as its own chat in WhatsApp and can only talk to you, its creator. No QR pairing, no linked device, and no optional Python dependencies.
 
-This is a different channel from `whatsapp`. See the [official WhatsApp agent guide](./guides/whatsapp-agent-platform.md) for the full comparison and walkthrough.
+This is a different channel from `whatsapp`. nanobot is an independent third-party project, not a WhatsApp product. See the [WhatsApp Agent Platform guide](./guides/whatsapp-agent-platform.md) for the full comparison and walkthrough.
 
 **1. Create the agent in WhatsApp**
 
@@ -511,7 +511,7 @@ nanobot gateway
 **Notes**
 
 - At most one gateway may poll a given agent token. A second one causes `409` and is logged as a duplicate-poller error.
-- Agent conversations are not end-to-end encrypted: Meta processes them on the agent's behalf. Your other chats are unaffected.
+- Agent conversations are not end-to-end encrypted. nanobot and your configured model provider process these messages; your other WhatsApp chats are unaffected. Review the [third-party agent terms](https://www.whatsapp.com/legal/third-party-agents-terms) before connecting.
 - Replies are split at 4096 characters. Progress and tool-hint messages are off by default because every send spends the same 12-per-minute budget.
 - Ambiguous send outcomes (HTTP `500`, read timeouts) are not retried by default, because a duplicate is worse than a miss. Set `retryAmbiguousSends: true` to opt in.
 

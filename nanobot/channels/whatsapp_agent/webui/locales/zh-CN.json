@@ -2,7 +2,8 @@
   "setup": {
     "docsLabel": "打开智能体设置指南",
     "officialLabel": "打开 WhatsApp 智能体帮助",
-    "summary": "将 nanobot 作为官方第三方智能体接入你自己的 WhatsApp 账号。只有你可以与它对话，它无法访问你的其他聊天。",
+    "summary": "通过 WhatsApp Agent Platform API 接入 nanobot。只有你可以与它对话，它无法访问你的其他 WhatsApp 聊天。",
+    "privacyNotice": "智能体对话不采用端到端加密。消息由 nanobot 和你配置的模型服务商处理。",
     "fields": {
       "token": {
         "label": "API 令牌",

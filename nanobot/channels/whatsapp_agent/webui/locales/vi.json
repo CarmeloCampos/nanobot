@@ -2,7 +2,8 @@
   "setup": {
     "docsLabel": "Mở hướng dẫn thiết lập tác nhân",
     "officialLabel": "Mở trợ giúp tác nhân WhatsApp",
-    "summary": "Kết nối nanobot như một tác nhân bên thứ ba chính thức trong tài khoản WhatsApp của bạn. Chỉ bạn có thể trò chuyện với nó và nó không truy cập các cuộc trò chuyện khác.",
+    "summary": "Kết nối nanobot qua API WhatsApp Agent Platform. Chỉ bạn có thể trò chuyện với tác nhân và tác nhân không thể truy cập các cuộc trò chuyện WhatsApp khác của bạn.",
+    "privacyNotice": "Cuộc trò chuyện với tác nhân không được mã hóa đầu cuối. Tin nhắn được xử lý bởi nanobot và nhà cung cấp mô hình bạn đã cấu hình.",
     "fields": {
       "token": {
         "label": "Mã thông báo API",

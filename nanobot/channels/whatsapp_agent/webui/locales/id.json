@@ -2,7 +2,8 @@
   "setup": {
     "docsLabel": "Buka panduan penyiapan agen",
     "officialLabel": "Buka bantuan agen WhatsApp",
-    "summary": "Hubungkan nanobot sebagai agen pihak ketiga resmi di akun WhatsApp Anda sendiri. Hanya Anda yang dapat mengobrol dengannya, dan ia tidak mengakses obrolan lain Anda.",
+    "summary": "Hubungkan nanobot melalui API WhatsApp Agent Platform. Hanya Anda yang dapat mengobrol dengannya, dan agen tidak dapat mengakses obrolan WhatsApp Anda yang lain.",
+    "privacyNotice": "Obrolan dengan agen tidak dienkripsi secara menyeluruh. Pesan diproses oleh nanobot dan penyedia model yang Anda konfigurasikan.",
     "fields": {
       "token": {
         "label": "Token API",
