@@ -32,6 +32,7 @@ from weakref import ReferenceType, ref
 import httpx
 from pydantic import Field
 
+from nanobot.bus.delivery import ChannelNotReadyError
 from nanobot.bus.events import OutboundMessage
 from nanobot.bus.queue import MessageBus
 from nanobot.channels.base import BaseChannel
@@ -247,7 +248,7 @@ class WhatsAppAgentChannel(BaseChannel):
         """Perform one paced API request and decode a JSON body when present."""
         client = self._client
         if client is None:
-            raise RuntimeError("WhatsApp Agent Platform channel is not connected")
+            raise ChannelNotReadyError("WhatsApp Agent Platform channel is not connected")
 
         await self._limiter.acquire(method_key)
         response = await client.request(
@@ -740,14 +741,8 @@ class WhatsAppAgentChannel(BaseChannel):
 
         to = self._recipient()
         if not to:
-            raise WhatsAppAgentAPIError(
-                APIError(
-                    status_code=0,
-                    code=0,
-                    message="No creator identifier is known yet; wait for an inbound message.",
-                    details="",
-                    fbtrace_id="",
-                )
+            raise ChannelNotReadyError(
+                "No creator identifier is known yet; wait for an inbound message."
             )
 
         # The reply implicitly clears the typing indicator.
@@ -780,6 +775,10 @@ class WhatsAppAgentChannel(BaseChannel):
             self._pending_sends.pop(key, None)
             raise
         except Exception as exc:
+            if isinstance(exc, ChannelNotReadyError) and pending.next_part:
+                # The scheduled outbox can only replay a wholly unsent result.
+                # A reconnect after partial delivery must not resend earlier parts.
+                raise RuntimeError("WhatsApp Agent connection closed after partial delivery") from exc
             if not self.should_retry_send_error(exc):
                 self._pending_sends.pop(key, None)
             raise

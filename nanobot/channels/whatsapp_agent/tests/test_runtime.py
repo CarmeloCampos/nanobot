@@ -11,6 +11,7 @@ import base64
 import gc
 import hashlib
 import json
+import sqlite3
 from pathlib import Path
 from typing import Any
 
@@ -18,6 +19,7 @@ import httpx
 import pytest
 from loguru import logger
 
+from nanobot.bus.delivery import ChannelNotReadyError, DeliveryRequest
 from nanobot.bus.events import OutboundMessage
 from nanobot.bus.outbound_events import ProgressEvent
 from nanobot.bus.queue import MessageBus
@@ -471,10 +473,56 @@ def test_reply_quotes_the_originating_message_once(tmp_path: Path, monkeypatch: 
 def test_send_without_a_known_creator_fails_loudly(tmp_path: Path):
     channel = _channel(tmp_path)
 
-    with pytest.raises(WhatsAppAgentAPIError):
+    with pytest.raises(ChannelNotReadyError):
         asyncio.run(
             channel.send(OutboundMessage(channel="whatsapp_agent", chat_id=CREATOR_CHAT_ID, content="hi"))
         )
+
+
+@pytest.mark.parametrize("outage", ["offline", "creator_unknown", "after_first_chunk"])
+async def test_scheduled_delivery_recovers_only_before_any_part_was_sent(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, outage: str,
+):
+    from nanobot.channels import outbox as outbox_module
+    from nanobot.config.schema import Config
+
+    monkeypatch.setattr(outbox_module, "RETRY_SECONDS", 0)
+    config = Config.model_validate({"channels": {"websocket": {"enabled": False}}})
+    manager = ChannelManager(config, MessageBus(), config_path=tmp_path / "config.json")
+    channel = _channel(tmp_path)
+    if outage != "creator_unknown":
+        channel._state.note_creator("user:55")
+    sent: list[str] = []
+
+    def accept(request: httpx.Request) -> httpx.Response:
+        sent.append(json.loads(request.content)["text"]["body"])
+        if outage == "after_first_chunk":
+            channel._client = None
+        return httpx.Response(200, json={"messages": [{"id": "wamid.sent"}]})
+
+    async with httpx.AsyncClient(transport=httpx.MockTransport(accept)) as client:
+        if outage != "offline":
+            channel._client = client
+        msg = OutboundMessage(channel.name, CREATOR_CHAT_ID, "x" * 5000,
+            delivery=DeliveryRequest("scheduled-run", "whatsapp_agent:creator", None))
+        manager._outbox.record(msg)
+        await manager._send_scheduled(channel, msg)
+        with sqlite3.connect(manager._outbox.path) as db:
+            status, error = db.execute("SELECT status, error FROM deliveries").fetchone()
+        if outage == "after_first_chunk":
+            assert status == "unknown"
+            assert error != "channel_not_ready"
+            assert sent == ["x" * 4096]
+            assert manager._outbox.ready() == []
+        else:
+            assert (status, error) == ("pending", "channel_not_ready")
+            assert sent == []
+            channel._client = client
+            channel._state.note_creator("user:55")
+            [saved] = manager._outbox.ready()
+            await manager._send_scheduled(channel, saved)
+            assert sent == ["x" * 4096, "x" * 904]
+            assert manager._outbox.ready() == []
 
 
 def test_outbound_wamid_is_remembered_for_receipts(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
@@ -490,6 +538,29 @@ def test_outbound_wamid_is_remembered_for_receipts(tmp_path: Path, monkeypatch: 
     )
 
     assert channel._state.last_status["wamid.sent"] == "sent"
+
+
+async def test_normal_retry_keeps_partial_progress_after_disconnect(tmp_path: Path):
+    channel = _channel(tmp_path)
+    channel._state.note_creator("user:55")
+    sent: list[str] = []
+
+    def accept(request: httpx.Request) -> httpx.Response:
+        sent.append(json.loads(request.content)["text"]["body"])
+        channel._client = None
+        return httpx.Response(200, json={"messages": [{"id": "wamid.sent"}]})
+
+    msg = OutboundMessage(channel.name, CREATOR_CHAT_ID, "x" * 5000)
+    async with httpx.AsyncClient(transport=httpx.MockTransport(accept)) as client:
+        channel._client = client
+        with pytest.raises(RuntimeError, match="after partial delivery") as caught:
+            await channel.send(msg)
+        assert not isinstance(caught.value, ChannelNotReadyError)
+        assert channel.should_retry_send_error(caught.value)
+        channel._client = client
+        await channel.send(msg)
+    assert sent == ["x" * 4096, "x" * 904]
+    assert not channel._pending_sends
 
 
 def test_media_uses_the_matching_payload_object_only(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
